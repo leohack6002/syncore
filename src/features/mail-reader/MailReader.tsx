@@ -1,14 +1,29 @@
 import { motion } from "framer-motion";
-import { Archive, Bell, MoreHorizontal, Reply, ShieldCheck, Sparkles, Star, Trash2 } from "lucide-react";
+import { Archive, Bell, FileText, MoreHorizontal, Reply, Sparkles, Star, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { mockAccounts, mockMessage, mockThreads } from "@/data/mock-inbox";
 import { formatRelativeTime } from "@/lib/utils";
+import { useMailStore } from "@/store/mail-store";
 import { useUIStore } from "@/store/ui-store";
+import { sanitizeEmailHtml } from "@/utils/sanitize-email";
 
 export function MailReader() {
   const selectedThreadId = useUIStore((state) => state.selectedThreadId);
-  const thread = mockThreads.find((item) => item.id === selectedThreadId) ?? mockThreads[0];
-  const account = mockAccounts.find((item) => item.id === thread.accountId);
+  const threads = useMailStore((state) => state.threads);
+  const accounts = useMailStore((state) => state.accounts);
+  const messages = useMailStore((state) => state.selectedMessages);
+  const thread = threads.find((item) => item.id === selectedThreadId);
+  const account = accounts.find((item) => item.id === thread?.accountId);
+
+  if (!thread) {
+    return (
+      <section className="grid min-w-0 place-items-center bg-[#07090f]/72 p-8 text-center backdrop-blur-2xl">
+        <div>
+          <p className="text-lg font-semibold text-white">Nothing selected</p>
+          <p className="mt-2 max-w-sm text-sm text-muted-foreground">Connect Gmail or choose a message from the unified inbox.</p>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="flex min-w-0 flex-col bg-[#07090f]/72 backdrop-blur-2xl">
@@ -59,33 +74,35 @@ export function MailReader() {
               </Button>
             </div>
 
-            <div className="mt-8 space-y-5 text-[15px] leading-7 text-slate-200">
-              <p>{mockMessage.bodyText}</p>
-              <p>
-                The foundation should keep Gmail-specific details isolated behind services, while the UI consumes normalized
-                account, thread, and message models. That gives Syncora room to support Outlook, IMAP, and smarter local workflows later.
-              </p>
-              <p>
-                I would prioritize the OAuth loop, secure token storage, SQLite migrations, and FTS search next. Once those are stable,
-                notifications and keyboard-driven triage can layer in cleanly.
-              </p>
-            </div>
+            {messages.length === 0 ? (
+              <p className="mt-8 text-sm text-muted-foreground">This thread is cached without message bodies yet. Refresh sync to fetch full content.</p>
+            ) : null}
 
-            <div className="mt-8 grid gap-3 rounded-xl border border-white/10 bg-black/20 p-4 sm:grid-cols-3">
-              {[
-                ["FTS5 ready", "Local search schema prepared"],
-                ["OAuth isolated", "Provider code stays replaceable"],
-                ["Virtualized", "Inbox list scales smoothly"]
-              ].map(([title, description]) => (
-                <div key={title}>
-                  <div className="flex items-center gap-2 text-sm font-medium text-white">
-                    <ShieldCheck className="h-4 w-4 text-primary" />
-                    {title}
-                  </div>
-                  <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+            {messages.map((message) => (
+              <div key={message.id} className="mt-8 border-t border-white/10 pt-6 first:border-t-0 first:pt-0">
+                <div className="mb-4 text-xs text-muted-foreground">
+                  {message.from} · {formatRelativeTime(message.receivedAt)}
                 </div>
-              ))}
-            </div>
+                {message.bodyHtml ? (
+                  <div
+                    className="prose prose-invert max-w-none prose-a:text-primary prose-img:rounded-lg"
+                    dangerouslySetInnerHTML={{ __html: sanitizeEmailHtml(message.bodyHtml) }}
+                  />
+                ) : (
+                  <div className="whitespace-pre-wrap text-[15px] leading-7 text-slate-200">{message.bodyText}</div>
+                )}
+                {message.attachments.length ? (
+                  <div className="mt-6 flex flex-wrap gap-2">
+                    {message.attachments.map((attachment) => (
+                      <div key={attachment.id} className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-muted-foreground">
+                        <FileText className="h-4 w-4" />
+                        {attachment.filename}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ))}
           </div>
         </motion.article>
       </div>

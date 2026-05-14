@@ -26,6 +26,8 @@ export type EmailThread = {
 export type EmailMessage = {
   id: string;
   threadId: string;
+  accountId: string;
+  gmailMessageId: string;
   from: string;
   to: string[];
   cc?: string[];
@@ -33,4 +35,19 @@ export type EmailMessage = {
   bodyHtml: string;
   bodyText: string;
   receivedAt: string;
+  attachments: EmailAttachment[];
+};
+
+export type EmailAttachment = {
+  id: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+};
+
+export type SyncStatus = "idle" | "syncing" | "error";
+
+export type SyncError = {
+  accountId?: string;
+  message: string;
 };

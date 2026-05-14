@@ -5,10 +5,12 @@ import tseslint from "@typescript-eslint/eslint-plugin";
 import tsParser from "@typescript-eslint/parser";
 
 export default [
+  {
+    ignores: ["dist/**", "node_modules/**", "src-tauri/target/**"]
+  },
   js.configs.recommended,
   {
     files: ["**/*.{ts,tsx}"],
-    ignores: ["dist", "src-tauri/target"],
     languageOptions: {
       parser: tsParser,
       parserOptions: {
@@ -17,6 +19,8 @@ export default [
       },
       globals: {
         __dirname: "readonly",
+        atob: "readonly",
+        console: "readonly",
         HTMLButtonElement: "readonly",
         HTMLDivElement: "readonly",
         URLSearchParams: "readonly",

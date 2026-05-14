@@ -12,6 +12,7 @@ export const migrations = [
         access_token_ref TEXT,
         refresh_token_ref TEXT,
         expires_at INTEGER,
+        last_synced_at TEXT,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
@@ -36,6 +37,7 @@ export const migrations = [
       CREATE TABLE IF NOT EXISTS email_messages (
         id TEXT PRIMARY KEY,
         thread_id TEXT NOT NULL REFERENCES email_threads(id) ON DELETE CASCADE,
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
         gmail_message_id TEXT NOT NULL,
         from_header TEXT NOT NULL,
         to_header TEXT NOT NULL,
@@ -44,6 +46,7 @@ export const migrations = [
         body_html TEXT,
         body_text TEXT NOT NULL,
         received_at TEXT NOT NULL,
+        attachments TEXT NOT NULL DEFAULT '[]',
         UNIQUE(thread_id, gmail_message_id)
       );
 

@@ -48,6 +48,26 @@
   ::selection {
     background: rgb(44 218 255 / 0.25);
   }
+
+  .prose {
+    color: rgb(226 232 240);
+  }
+
+  .prose a {
+    color: rgb(44 218 255);
+  }
+
+  .prose img {
+    max-width: 100%;
+    height: auto;
+  }
+
+  .prose blockquote {
+    border-left: 2px solid rgb(255 255 255 / 0.16);
+    margin-left: 0;
+    padding-left: 1rem;
+    color: rgb(203 213 225);
+  }
 }
 
 @layer utilities {

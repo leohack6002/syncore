@@ -1,6 +1,8 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { Archive, Inbox, LogIn, Search, Settings, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useWorkspace } from "@/hooks/use-workspace";
+import { useMailStore } from "@/store/mail-store";
 import { useCommandPalette } from "@/store/ui-store";
 
 const commands = [
@@ -14,6 +16,15 @@ const commands = [
 
 export function CommandPalette() {
   const { isOpen, setOpen } = useCommandPalette();
+  const searchQuery = useMailStore((state) => state.searchQuery);
+  const setSearchQuery = useMailStore((state) => state.setSearchQuery);
+  const { connectAccount, sync } = useWorkspace();
+
+  function runCommand(label: string) {
+    if (label === "Connect Gmail account") connectAccount.mutate();
+    if (label === "Search unified inbox") sync.mutate();
+    setOpen(false);
+  }
 
   return (
     <AnimatePresence>
@@ -36,6 +47,8 @@ export function CommandPalette() {
               <Search className="h-4 w-4 text-muted-foreground" />
               <input
                 autoFocus
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
                 placeholder="Search emails, accounts, labels, or commands..."
                 className="h-full min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-muted-foreground"
               />
@@ -48,7 +61,7 @@ export function CommandPalette() {
                 <button
                   key={command.label}
                   className="flex h-12 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-white transition hover:bg-white/[0.07]"
-                  onClick={() => setOpen(false)}
+                  onClick={() => runCommand(command.label)}
                 >
                   <command.icon className="h-4 w-4 text-muted-foreground" />
                   <span className="flex-1">{command.label}</span>

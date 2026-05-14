@@ -49,11 +49,14 @@ export const mockThreads: EmailThread[] = Array.from({ length: 80 }, (_, index) 
 export const mockMessage: EmailMessage = {
   id: "msg_1",
   threadId: "thread_1",
+  accountId: "acc_primary",
+  gmailMessageId: "mock_msg_1",
   from: "Maya Chen <maya@studio.dev>",
   to: ["alex@syncora.dev"],
   subject: "Syncora product direction and launch checklist",
   bodyHtml: "",
   bodyText:
     "The current shell feels fast and focused. Next steps are OAuth completion, SQLite FTS wiring, and inbox sync scheduling. The visual language is landing in the right territory: quiet, precise, and premium.",
-  receivedAt: new Date().toISOString()
+  receivedAt: new Date().toISOString(),
+  attachments: []
 };

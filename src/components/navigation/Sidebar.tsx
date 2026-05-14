@@ -14,8 +14,9 @@ import {
 } from "lucide-react";
 import { SyncoraLogo } from "@/components/brand/SyncoraLogo";
 import { Button } from "@/components/ui/button";
-import { mockAccounts } from "@/data/mock-inbox";
+import { useWorkspace } from "@/hooks/use-workspace";
 import { cn } from "@/lib/utils";
+import { useMailStore } from "@/store/mail-store";
 import { useUIStore } from "@/store/ui-store";
 
 const navItems = [
@@ -30,6 +31,9 @@ export function Sidebar() {
   const collapsed = useUIStore((state) => state.sidebarCollapsed);
   const toggleSidebar = useUIStore((state) => state.toggleSidebar);
   const openCommand = useUIStore((state) => state.toggleCommandPalette);
+  const accounts = useMailStore((state) => state.accounts);
+  const syncStatus = useMailStore((state) => state.syncStatus);
+  const { connectAccount } = useWorkspace();
 
   return (
     <motion.aside
@@ -74,7 +78,7 @@ export function Sidebar() {
       <div className="mt-6">
         {!collapsed && <p className="mb-2 px-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">Accounts</p>}
         <div className="space-y-1">
-          {mockAccounts.map((account) => (
+          {accounts.map((account) => (
             <button
               key={account.id}
               className={cn("flex h-10 w-full items-center gap-3 rounded-lg px-3 text-left text-sm hover:bg-white/[0.06]", collapsed && "justify-center px-0")}
@@ -88,14 +92,23 @@ export function Sidebar() {
               )}
             </button>
           ))}
+          {accounts.length === 0 && !collapsed ? (
+            <p className="px-3 py-2 text-xs leading-5 text-muted-foreground">Connect Gmail to start building your local unified inbox.</p>
+          ) : null}
         </div>
       </div>
 
       <div className="mt-auto space-y-2">
-        <Button variant="outline" className={cn("w-full justify-start border-white/10 bg-white/[0.04]", collapsed && "justify-center px-0")}>
+        <Button
+          variant="outline"
+          className={cn("w-full justify-start border-white/10 bg-white/[0.04]", collapsed && "justify-center px-0")}
+          onClick={() => connectAccount.mutate()}
+          disabled={connectAccount.isPending}
+        >
           <Plus className="h-4 w-4" />
-          {!collapsed && "Add Gmail account"}
+          {!collapsed && (connectAccount.isPending ? "Connecting..." : "Add Gmail account")}
         </Button>
+        {!collapsed && syncStatus === "syncing" ? <p className="px-2 text-xs text-primary">Syncing Gmail...</p> : null}
         <div className={cn("grid gap-2", collapsed ? "grid-cols-1" : "grid-cols-3")}>
           {[Bell, Sparkles, Settings].map((Icon, index) => (
             <Button key={index} variant="ghost" size="icon" aria-label="Sidebar action">

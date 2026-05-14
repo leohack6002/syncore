@@ -87,7 +87,9 @@ Never commit `.env`, OAuth secrets, tokens, or local database files.
 
 ## Gmail OAuth
 
-The current code includes the OAuth URL builder and account-connection entry point. The production implementation should complete the secure PKCE or Tauri command based code exchange, then store token references through secure platform storage instead of exposing raw secrets in the frontend.
+Syncora uses a desktop loopback OAuth flow with PKCE. The React app starts the account connection, while the Tauri backend opens the browser, receives the local callback, exchanges the code, and stores Gmail tokens through the OS credential store via the native keyring integration. The frontend only receives account metadata.
+
+Create a Google Cloud OAuth client for a desktop app, enable the Gmail API, and place the public client id in `.env`.
 
 ## SQLite
 
@@ -117,4 +119,3 @@ Contributions are welcome once the public repository is opened. Please read [CON
 ## License
 
 MIT. See [LICENSE](LICENSE).
-

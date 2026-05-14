@@ -1,28 +1,31 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { motion } from "framer-motion";
-import { Filter, Inbox, RefreshCcw, Search } from "lucide-react";
+import { AlertCircle, Filter, Inbox, RefreshCcw, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { mockAccounts, mockThreads } from "@/data/mock-inbox";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { useWorkspace } from "@/hooks/use-workspace";
 import { cn, formatRelativeTime } from "@/lib/utils";
+import { loadCachedWorkspace, loadMessagesForSelectedThread } from "@/services/sync/sync-engine";
+import { useMailStore } from "@/store/mail-store";
 import { useUIStore } from "@/store/ui-store";
 
 export function InboxList() {
-  const [query, setQuery] = useState("");
+  const threads = useMailStore((state) => state.threads);
+  const accounts = useMailStore((state) => state.accounts);
+  const query = useMailStore((state) => state.searchQuery);
+  const setQuery = useMailStore((state) => state.setSearchQuery);
+  const syncStatus = useMailStore((state) => state.syncStatus);
+  const error = useMailStore((state) => state.error);
   const selectedThreadId = useUIStore((state) => state.selectedThreadId);
   const setSelectedThreadId = useUIStore((state) => state.setSelectedThreadId);
   const parentRef = useRef<HTMLDivElement>(null);
+  const debouncedQuery = useDebouncedValue(query);
+  const { sync, connectAccount } = useWorkspace();
 
-  const threads = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    if (!normalizedQuery) return mockThreads;
-    return mockThreads.filter((thread) =>
-      [thread.senderName, thread.senderEmail, thread.subject, thread.preview, thread.labels.join(" ")]
-        .join(" ")
-        .toLowerCase()
-        .includes(normalizedQuery)
-    );
-  }, [query]);
+  useEffect(() => {
+    void loadCachedWorkspace(debouncedQuery);
+  }, [debouncedQuery]);
 
   const virtualizer = useVirtualizer({
     count: threads.length,
@@ -43,8 +46,8 @@ export function InboxList() {
             <h1 className="mt-1 text-2xl font-semibold text-white">Unified</h1>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" aria-label="Refresh inbox">
-              <RefreshCcw className="h-4 w-4" />
+            <Button variant="ghost" size="icon" aria-label="Refresh inbox" onClick={() => sync.mutate()} disabled={sync.isPending}>
+              <RefreshCcw className={cn("h-4 w-4", syncStatus === "syncing" && "animate-spin")} />
             </Button>
             <Button variant="ghost" size="icon" aria-label="Filter inbox">
               <Filter className="h-4 w-4" />
@@ -64,18 +67,36 @@ export function InboxList() {
       </header>
 
       <div ref={parentRef} className="min-h-0 flex-1 overflow-auto">
-        {threads.length === 0 ? (
+        {error ? (
           <div className="grid h-full place-items-center p-8 text-center">
             <div>
-              <p className="font-medium text-white">No matching email</p>
-              <p className="mt-1 text-sm text-muted-foreground">Try another search term or label.</p>
+              <AlertCircle className="mx-auto h-8 w-8 text-destructive" />
+              <p className="mt-3 font-medium text-white">Sync needs attention</p>
+              <p className="mt-1 max-w-xs text-sm text-muted-foreground">{error.message}</p>
+              <Button className="mt-4" size="sm" onClick={() => sync.mutate()}>
+                Retry sync
+              </Button>
+            </div>
+          </div>
+        ) : threads.length === 0 ? (
+          <div className="grid h-full place-items-center p-8 text-center">
+            <div>
+              <p className="font-medium text-white">{accounts.length ? "No matching email" : "No Gmail accounts connected"}</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {accounts.length ? "Try another search term or refresh your inbox." : "Add an account to sync your local inbox cache."}
+              </p>
+              {accounts.length === 0 ? (
+                <Button className="mt-4" size="sm" onClick={() => connectAccount.mutate()}>
+                  Add Gmail account
+                </Button>
+              ) : null}
             </div>
           </div>
         ) : (
           <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
             {virtualizer.getVirtualItems().map((virtualRow) => {
               const thread = threads[virtualRow.index];
-              const account = mockAccounts.find((item) => item.id === thread.accountId);
+              const account = accounts.find((item) => item.id === thread.accountId);
               const selected = selectedThreadId === thread.id;
 
               return (
@@ -86,7 +107,10 @@ export function InboxList() {
                     selected && "bg-white/[0.07]"
                   )}
                   style={{ transform: `translateY(${virtualRow.start}px)` }}
-                  onClick={() => setSelectedThreadId(thread.id)}
+                  onClick={() => {
+                    setSelectedThreadId(thread.id);
+                    void loadMessagesForSelectedThread(thread.id);
+                  }}
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ duration: 0.18 }}
