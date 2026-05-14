@@ -1,0 +1,45 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Syncora",
+  "version": "0.1.0",
+  "identifier": "dev.syncora.app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Syncora",
+        "width": 1320,
+        "height": 860,
+        "minWidth": 1024,
+        "minHeight": 720,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": true,
+        "transparent": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; connect-src 'self' https://gmail.googleapis.com https://accounts.google.com https://oauth2.googleapis.com"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/icon.png"
+    ],
+    "category": "Productivity",
+    "shortDescription": "Unified Gmail desktop workspace",
+    "longDescription": "Syncora combines multiple Gmail accounts into a fast, local-first unified desktop inbox."
+  },
+  "plugins": {
+    "sql": {
+      "preload": ["sqlite:syncora.db"]
+    }
+  }
+}

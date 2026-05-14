@@ -1,0 +1,17 @@
+{
+  "name": "Syncora",
+  "tagline": "Unified Communication Workspace",
+  "colors": {
+    "ink": "#07090F",
+    "panel": "#0B0F18",
+    "line": "#263042",
+    "text": "#F8FAFC",
+    "muted": "#94A3B8",
+    "electricBlue": "#2CDAFF",
+    "violet": "#9B7CFF"
+  },
+  "typography": {
+    "interface": "Inter",
+    "fallback": "ui-sans-serif, system-ui, sans-serif"
+  }
+}

@@ -1,0 +1,64 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+    --background: 222 47% 5%;
+    --foreground: 210 40% 98%;
+    --card: 223 34% 8%;
+    --card-foreground: 210 40% 98%;
+    --popover: 224 36% 7%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 190 98% 58%;
+    --primary-foreground: 222 47% 5%;
+    --muted: 223 20% 15%;
+    --muted-foreground: 215 16% 64%;
+    --accent: 263 82% 68%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 220 20% 18%;
+    --input: 220 20% 18%;
+    --ring: 190 98% 58%;
+    --radius: 0.75rem;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings:
+      "rlig" 1,
+      "calt" 1;
+    margin: 0;
+    min-width: 320px;
+    min-height: 100vh;
+    overflow: hidden;
+  }
+
+  button,
+  input {
+    font: inherit;
+  }
+
+  ::selection {
+    background: rgb(44 218 255 / 0.25);
+  }
+}
+
+@layer utilities {
+  .glass-panel {
+    background: linear-gradient(180deg, rgb(255 255 255 / 0.075), rgb(255 255 255 / 0.025));
+    border: 1px solid rgb(255 255 255 / 0.1);
+    box-shadow: 0 18px 60px rgb(0 0 0 / 0.28);
+    backdrop-filter: blur(22px);
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+}
