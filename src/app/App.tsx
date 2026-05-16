@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { AppShell } from "@/layouts/AppShell";
 import { initializeDatabase } from "@/database/client";
 import { loadCachedWorkspace, syncAllAccounts } from "@/services/sync/sync-engine";
+import { useMailStore } from "@/store/mail-store";
 import { useCommandPalette } from "@/store/ui-store";
 
 export function App() {
@@ -11,7 +12,11 @@ export function App() {
     void initializeDatabase()
       .then(() => loadCachedWorkspace())
       .then(() => syncAllAccounts())
-      .catch((error) => console.error(error));
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "Syncora could not initialize the local workspace.";
+        useMailStore.getState().setError({ message });
+        useMailStore.getState().setSyncStatus("error");
+      });
   }, []);
 
   useEffect(() => {

@@ -1,19 +1,20 @@
 use std::{
     collections::HashMap,
-    io::{Read, Write},
+    io::{ErrorKind, Read, Write},
     net::TcpListener,
     sync::{Arc, Mutex},
     thread,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use keyring::Entry;
 use rand::{distributions::Alphanumeric, Rng};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
-use tauri::{Manager, State};
+use tauri::State;
+use tauri_plugin_opener::OpenerExt;
 use url::Url;
 
 const TOKEN_SERVICE: &str = "syncora.gmail.tokens";
@@ -244,10 +245,22 @@ fn logout_google_account(account_id: String) -> Result<(), String> {
 
 fn receive_oauth_code(listener: TcpListener, expected_state: &str) -> Result<String, String> {
     listener
-        .set_read_timeout(Some(Duration::from_secs(180)))
+        .set_nonblocking(true)
         .map_err(|error| error.to_string())?;
 
-    let (mut stream, _) = listener.accept().map_err(|error| error.to_string())?;
+    let deadline = Instant::now() + Duration::from_secs(180);
+    let (mut stream, _) = loop {
+        match listener.accept() {
+            Ok(connection) => break connection,
+            Err(error) if error.kind() == ErrorKind::WouldBlock && Instant::now() < deadline => {
+                thread::sleep(Duration::from_millis(100));
+            }
+            Err(error) if error.kind() == ErrorKind::WouldBlock => {
+                return Err("OAuth callback timed out.".into());
+            }
+            Err(error) => return Err(error.to_string()),
+        }
+    };
     let mut buffer = [0; 4096];
     let bytes_read = stream.read(&mut buffer).map_err(|error| error.to_string())?;
     let request = String::from_utf8_lossy(&buffer[..bytes_read]);

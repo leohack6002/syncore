@@ -3,15 +3,17 @@
   "tagline": "Unified Communication Workspace",
   "colors": {
     "ink": "#07090F",
-    "panel": "#0B0F18",
+    "graphite": "#0B0E17",
+    "slate": "#151A27",
     "line": "#263042",
-    "text": "#F8FAFC",
+    "white": "#F8FBFF",
     "muted": "#94A3B8",
-    "electricBlue": "#2CDAFF",
+    "electricCyan": "#28D7FF",
+    "signalBlue": "#318CFF",
     "violet": "#9B7CFF"
   },
   "typography": {
-    "interface": "Inter",
+    "interface": "Inter or Segoe UI",
     "fallback": "ui-sans-serif, system-ui, sans-serif"
   }
 }

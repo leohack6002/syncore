@@ -1,120 +1,142 @@
 # Syncora
 
-**Unified Communication Workspace**
+Syncora is a Tauri desktop communication workspace for Gmail. It brings multiple inboxes into one fast, local-first interface with keyboard-driven navigation, SQLite search, native notifications, and a restrained premium visual system.
 
-Syncora is a modern, lightweight desktop email client focused on Gmail integration, multi-account unified inboxes, fast local search, and a premium keyboard-driven workflow.
-
-The product direction is inspired by Superhuman, Linear, Notion, Arc Browser, Spark Mail, and Raycast: fast, calm, focused, and beautiful without visual clutter.
+The product direction is calm and productivity-focused: a desktop client that feels closer to Linear, Raycast, Arc, Superhuman, and Notion than a traditional webmail tab.
 
 ## Status
 
-Syncora is in Phase 1 foundation work. The current repository includes:
+Syncora is an early preview foundation. The core desktop shell, Gmail OAuth boundary, SQLite cache, sync engine, native notification path, and app branding pipeline are in place. The app builds successfully as a Windows desktop bundle.
 
-- Tauri + React + TypeScript + Vite foundation
-- Tailwind CSS + shadcn/ui configuration
-- Framer Motion transitions
-- Zustand UI state
-- TanStack Query setup
-- Virtualized unified inbox prototype
-- Split-pane mail reader shell
-- Command palette foundation
-- Gmail OAuth service boundary
-- SQLite schema with FTS5 search table
-- Native notification helper
-- Branding SVG assets and palette
-- Open-source project docs
+## Highlights
 
-## Screenshots
+- Tauri 2 desktop app with React, TypeScript, Vite, and Rust commands
+- Three-pane workspace with sidebar, unified inbox, and message reader
+- Gmail OAuth with PKCE, loopback callback, and OS keyring token storage
+- Gmail API bridge through native Tauri commands
+- Local SQLite cache for accounts, threads, messages, settings, and FTS5 search
+- Virtualized inbox rendering with TanStack Virtual
+- Command palette with `Ctrl+K` / `Cmd+K`
+- Native desktop notifications for new unread threads
+- Professional Syncora brand assets and generated app icons for desktop bundles
 
-Screenshots will be added after the first packaged preview build.
-
-## Architecture
+## Repository Structure
 
 ```text
-src/
-├── app/                 # application composition
-├── components/          # reusable UI and navigation components
-├── data/                # temporary mock data for early UI development
-├── database/            # SQLite client and migrations
-├── features/            # product features grouped by domain
-├── hooks/               # shared React hooks
-├── layouts/             # desktop shell layouts
-├── lib/                 # shared utilities and client setup
-├── pages/               # future route-level screens
-├── services/            # Gmail, notifications, platform services
-├── store/               # Zustand stores
-├── styles/              # global styles
-├── types/               # shared TypeScript types
-└── utils/               # pure helpers
+.
+|-- .github/              # issue and pull request templates
+|-- public/brand/         # source brand assets, favicon, banner, palette
+|-- src/                  # React application source
+|   |-- app/              # application bootstrap
+|   |-- components/       # shared UI, navigation, and brand components
+|   |-- database/         # SQLite client, schema, and repositories
+|   |-- features/         # inbox, reader, command palette
+|   |-- hooks/            # shared React hooks
+|   |-- layouts/          # desktop shell layouts
+|   |-- lib/              # shared utilities and query client
+|   |-- services/         # Gmail, auth, sync, notification, and Tauri services
+|   |-- store/            # Zustand state stores
+|   |-- styles/           # global styles
+|   `-- types/            # shared TypeScript types
+|-- src-tauri/            # Tauri app, Rust commands, capabilities, icons
+|-- CHANGELOG.md          # release history
+|-- demo.md               # product walkthrough and current capabilities
+`-- package.json          # development, build, and branding scripts
 ```
 
-## Getting Started
+Generated folders such as `dist/`, `node_modules/`, and `src-tauri/target/` are intentionally ignored.
 
-### Prerequisites
+## Requirements
 
 - Node.js 20+
+- npm
 - Rust stable
-- Tauri system dependencies for your OS
-- A Google Cloud OAuth client configured for Gmail API access
+- Tauri desktop prerequisites for your operating system
+- Google Cloud OAuth client with Gmail API access enabled
 
-### Installation
+## Setup
 
 ```bash
 npm install
 cp .env.example .env
-npm run tauri:dev
 ```
 
-### Development Commands
+On Windows PowerShell:
 
-```bash
-npm run dev          # Vite frontend only
-npm run tauri:dev    # desktop app in development
-npm run build        # typecheck and build frontend
-npm run tauri:build  # package desktop app
-npm run lint         # lint TypeScript and React
-npm run typecheck    # TypeScript only
+```powershell
+Copy-Item .env.example .env
 ```
 
-## Environment Variables
+Then add your Google OAuth client id:
 
 ```bash
 VITE_GOOGLE_CLIENT_ID=
 VITE_GOOGLE_REDIRECT_URI=http://localhost:1420/oauth/google/callback
 ```
 
-Never commit `.env`, OAuth secrets, tokens, or local database files.
+Never commit `.env`, OAuth secrets, tokens, local database files, or generated build output.
 
-## Gmail OAuth
+## Development
 
-Syncora uses a desktop loopback OAuth flow with PKCE. The React app starts the account connection, while the Tauri backend opens the browser, receives the local callback, exchanges the code, and stores Gmail tokens through the OS credential store via the native keyring integration. The frontend only receives account metadata.
+```bash
+npm run dev          # Vite frontend only
+npm run tauri:dev    # desktop app in development
+npm run typecheck    # TypeScript validation
+npm run lint         # ESLint
+npm run build        # frontend production build
+npm run tauri:build  # desktop production bundle
+```
 
-Create a Google Cloud OAuth client for a desktop app, enable the Gmail API, and place the public client id in `.env`.
+## Branding And Icons
 
-## SQLite
+The canonical app icon source is:
 
-Syncora uses SQLite only. The initial schema includes:
+```text
+public/brand/syncora-logo.png
+```
 
-- `accounts`
-- `email_threads`
-- `email_messages`
-- `app_settings`
-- `email_search` FTS5 virtual table
+After changing the logo, regenerate native Tauri icons with:
+
+```bash
+npm run brand:icons
+```
+
+This refreshes `src-tauri/icons`, including Windows `.ico`, macOS `.icns`, Linux PNG sizes, and installer assets. Brand guidance lives in `public/brand/palette.md`.
+
+## Build Verification
+
+The current app has been verified with:
+
+```bash
+npm run build
+npx tauri build --no-bundle --verbose
+npx tauri build
+```
+
+Windows release artifacts are produced under:
+
+```text
+src-tauri/target/release/bundle/
+```
+
+## Architecture Notes
+
+Syncora keeps Gmail tokens outside the frontend. The React app starts account connection, while Rust commands open the browser, receive the OAuth callback, exchange the code, refresh tokens, and store credentials in the OS keyring.
+
+Email data is normalized before being written into SQLite. The frontend reads from the local cache first, then syncs accounts in the background. This keeps the app responsive and prepares the product for fast search, offline reads, and multi-account workflows.
 
 ## Roadmap
 
-- Phase 1: foundation, architecture, docs
-- Phase 2: polished app shell, sidebar, inbox, split panes
-- Phase 3: Google OAuth, multi-account management, token refresh
-- Phase 4: Gmail API sync, normalization, unified inbox merge
-- Phase 5: SQLite caching and FTS5 search
-- Phase 6: notifications, shortcuts, command palette workflows
-- Phase 7: rendering, memory, and animation optimization
-- Phase 8: first public release preparation
+- Account management screens and reconnect states
+- More complete Gmail pagination and background refresh
+- Keyboard shortcuts for archive, star, search, and navigation
+- Message rendering hardening for complex email HTML
+- Tests for normalization, repositories, and sync behavior
+- Screenshots and packaged preview release notes
 
 ## Contributing
 
-Contributions are welcome once the public repository is opened. Please read [CONTRIBUTING.md](CONTRIBUTING.md), use conventional commits, and keep pull requests focused.
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Keep changes focused, document user-visible behavior, and run validation commands before review.
 
 ## License
 

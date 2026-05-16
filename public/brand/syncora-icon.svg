@@ -1,12 +1,14 @@
-<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="64" height="64" rx="16" fill="#07090F"/>
-  <path d="M45 17c-7-6-18-6-25 1l-9 9" stroke="url(#mark)" stroke-width="6" stroke-linecap="round"/>
-  <path d="M19 47c7 6 18 6 25-1l9-9" stroke="url(#mark)" stroke-width="6" stroke-linecap="round"/>
-  <path d="M23 32h18" stroke="white" stroke-width="5" stroke-linecap="round"/>
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Syncora icon">
   <defs>
-    <linearGradient id="mark" x1="11" x2="53" y1="15" y2="49">
-      <stop stop-color="#2CDAFF"/>
+    <linearGradient id="mark" x1="54" y1="51" x2="202" y2="205" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#28D7FF"/>
+      <stop offset="0.55" stop-color="#318CFF"/>
       <stop offset="1" stop-color="#9B7CFF"/>
     </linearGradient>
   </defs>
+  <rect x="38" y="38" width="180" height="180" rx="46" fill="#07090F"/>
+  <rect x="46" y="46" width="164" height="164" rx="39" fill="#0B0E17" stroke="white" stroke-opacity=".08" stroke-width="2"/>
+  <path d="M176 70c-25-21-62-19-85 4l-27 27" stroke="url(#mark)" stroke-width="19" stroke-linecap="round"/>
+  <path d="M80 186c25 21 62 19 85-4l27-27" stroke="url(#mark)" stroke-width="19" stroke-linecap="round"/>
+  <path d="M90 128h77" stroke="#F8FBFF" stroke-width="17" stroke-linecap="round"/>
 </svg>
