@@ -1,10 +1,10 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { motion } from "framer-motion";
-import { AlertCircle, Filter, Inbox, RefreshCcw, Search } from "lucide-react";
+import { AlertCircle, Filter, Inbox, RefreshCcw, Search, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useWorkspace } from "@/hooks/use-workspace";
+import { filterThreadsByFolder } from "@/lib/mail-folders";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { loadCachedWorkspace, loadMessagesForSelectedThread } from "@/services/sync/sync-engine";
 import { useMailStore } from "@/store/mail-store";
@@ -15,22 +15,43 @@ export function InboxList() {
   const accounts = useMailStore((state) => state.accounts);
   const query = useMailStore((state) => state.searchQuery);
   const setQuery = useMailStore((state) => state.setSearchQuery);
+  const toggleThreadStarred = useMailStore((state) => state.toggleThreadStarred);
   const syncStatus = useMailStore((state) => state.syncStatus);
   const error = useMailStore((state) => state.error);
+  const activeFolder = useUIStore((state) => state.activeFolder);
   const selectedThreadId = useUIStore((state) => state.selectedThreadId);
   const setSelectedThreadId = useUIStore((state) => state.setSelectedThreadId);
   const parentRef = useRef<HTMLDivElement>(null);
+  const didRunInitialSearchLoad = useRef(false);
   const debouncedQuery = useDebouncedValue(query);
   const { sync, connectAccount } = useWorkspace();
+  const visibleThreads = useMemo(() => filterThreadsByFolder(threads, activeFolder), [activeFolder, threads]);
+  const accountsById = useMemo(() => new Map(accounts.map((account) => [account.id, account])), [accounts]);
+  const activeFolderLabel = activeFolder[0].toUpperCase() + activeFolder.slice(1);
 
   useEffect(() => {
+    if (!didRunInitialSearchLoad.current) {
+      didRunInitialSearchLoad.current = true;
+      if (!debouncedQuery.trim()) return;
+    }
+
     void loadCachedWorkspace(debouncedQuery);
   }, [debouncedQuery]);
 
+  useEffect(() => {
+    const selectedStillVisible = visibleThreads.some((thread) => thread.id === selectedThreadId);
+    const nextThreadId = selectedStillVisible ? selectedThreadId : visibleThreads[0]?.id ?? null;
+
+    if (nextThreadId !== selectedThreadId) {
+      setSelectedThreadId(nextThreadId);
+      void loadMessagesForSelectedThread(nextThreadId);
+    }
+  }, [activeFolder, selectedThreadId, setSelectedThreadId, visibleThreads]);
+
   const virtualizer = useVirtualizer({
-    count: threads.length,
+    count: visibleThreads.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 118,
+    estimateSize: () => 132,
     overscan: 8
   });
 
@@ -41,12 +62,12 @@ export function InboxList() {
           <div>
             <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
               <Inbox className="h-3.5 w-3.5" />
-              Inbox
+              {activeFolderLabel}
             </div>
-            <h1 className="mt-1 text-2xl font-semibold text-white">Unified</h1>
+            <h1 className="mt-1 text-2xl font-semibold text-white">{activeFolderLabel}</h1>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" aria-label="Refresh inbox" onClick={() => sync.mutate()} disabled={sync.isPending}>
+            <Button variant="ghost" size="icon" aria-label="Refresh inbox" onClick={() => sync.mutate()} disabled={sync.isPending || syncStatus === "syncing"}>
               <RefreshCcw className={cn("h-4 w-4", syncStatus === "syncing" && "animate-spin")} />
             </Button>
             <Button variant="ghost" size="icon" aria-label="Filter inbox">
@@ -66,7 +87,7 @@ export function InboxList() {
         </label>
       </header>
 
-      <div ref={parentRef} className="min-h-0 flex-1 overflow-auto">
+      <div ref={parentRef} className="h-full min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
         {error ? (
           <div className="grid h-full place-items-center p-8 text-center">
             <div>
@@ -78,16 +99,16 @@ export function InboxList() {
               </Button>
             </div>
           </div>
-        ) : threads.length === 0 ? (
+        ) : visibleThreads.length === 0 ? (
           <div className="grid h-full place-items-center p-8 text-center">
             <div>
-              <p className="font-medium text-white">{accounts.length ? "No matching email" : "No Gmail accounts connected"}</p>
+              <p className="font-medium text-white">{accounts.length ? `No ${activeFolderLabel.toLowerCase()} email` : "No Gmail accounts connected"}</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                {accounts.length ? "Try another search term or refresh your inbox." : "Add an account to sync your local inbox cache."}
+                {accounts.length ? "Try another folder, search term, or refresh your inbox." : "Add an account to sync your local inbox cache."}
               </p>
               {accounts.length === 0 ? (
-                <Button className="mt-4" size="sm" onClick={() => connectAccount.mutate()}>
-                  Add Gmail account
+                <Button className="mt-4" size="sm" onClick={() => connectAccount.mutate()} disabled={connectAccount.isPending}>
+                  {connectAccount.isPending ? "Connecting..." : "Add Gmail account"}
                 </Button>
               ) : null}
             </div>
@@ -95,15 +116,17 @@ export function InboxList() {
         ) : (
           <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
             {virtualizer.getVirtualItems().map((virtualRow) => {
-              const thread = threads[virtualRow.index];
-              const account = accounts.find((item) => item.id === thread.accountId);
+              const thread = visibleThreads[virtualRow.index];
+              const account = accountsById.get(thread.accountId);
               const selected = selectedThreadId === thread.id;
 
               return (
-                <motion.button
+                <div
+                  role="button"
+                  tabIndex={0}
                   key={thread.id}
                   className={cn(
-                    "absolute left-0 top-0 w-full border-b border-white/[0.07] p-4 text-left transition hover:bg-white/[0.04]",
+                    "absolute left-0 top-0 h-[132px] w-full cursor-pointer overflow-hidden border-b border-white/[0.07] p-4 text-left transition hover:bg-white/[0.04]",
                     selected && "bg-white/[0.07]"
                   )}
                   style={{ transform: `translateY(${virtualRow.start}px)` }}
@@ -111,9 +134,12 @@ export function InboxList() {
                     setSelectedThreadId(thread.id);
                     void loadMessagesForSelectedThread(thread.id);
                   }}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ duration: 0.18 }}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    event.preventDefault();
+                    setSelectedThreadId(thread.id);
+                    void loadMessagesForSelectedThread(thread.id);
+                  }}
                 >
                   <div className="flex items-center gap-3">
                     <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: account?.color }} />
@@ -129,15 +155,26 @@ export function InboxList() {
                       <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{thread.preview}</p>
                     </div>
                   </div>
-                  <div className="mt-3 flex items-center gap-2">
-                    {thread.labels.map((label) => (
+                  <div className="mt-3 flex items-center gap-2 overflow-hidden">
+                    <button
+                      type="button"
+                      className={cn("shrink-0 rounded p-0.5 text-muted-foreground transition hover:text-amber-300", thread.starred && "text-amber-300")}
+                      aria-label={thread.starred ? "Unstar message" : "Star message"}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void toggleThreadStarred(thread.id);
+                      }}
+                    >
+                      <Star className={cn("h-3.5 w-3.5", thread.starred && "fill-current")} />
+                    </button>
+                    {thread.labels.slice(0, 3).map((label) => (
                       <span key={label} className="rounded-full border border-white/10 px-2 py-0.5 text-[11px] text-muted-foreground">
                         {label}
                       </span>
                     ))}
                     {thread.messageCount > 1 && <span className="ml-auto text-[11px] text-muted-foreground">{thread.messageCount} messages</span>}
                   </div>
-                </motion.button>
+                </div>
               );
             })}
           </div>

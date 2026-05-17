@@ -154,6 +154,12 @@ export async function upsertThread(thread: EmailThread, messages: EmailMessage[]
     ]
   );
 
+  const cachedMessages = await getCachedMessages(thread.id);
+  const searchableBody = messages
+    .map((message) => message.bodyText)
+    .join("\n\n")
+    .trim() || cachedMessages.map((message) => message.bodyText).join("\n\n");
+
   await db.execute("DELETE FROM email_search WHERE thread_id = $1", [thread.id]);
   await db.execute(
     "INSERT INTO email_search (thread_id, account_id, sender_name, sender_email, subject, body_text, labels) VALUES ($1, $2, $3, $4, $5, $6, $7)",
@@ -163,7 +169,7 @@ export async function upsertThread(thread: EmailThread, messages: EmailMessage[]
       thread.senderName,
       thread.senderEmail,
       thread.subject,
-      messages.map((message) => message.bodyText).join("\n\n"),
+      searchableBody,
       thread.labels.join(" ")
     ]
   );
@@ -180,8 +186,8 @@ export async function upsertThread(thread: EmailThread, messages: EmailMessage[]
         to_header = excluded.to_header,
         cc_header = excluded.cc_header,
         subject = excluded.subject,
-        body_html = excluded.body_html,
-        body_text = excluded.body_text,
+        body_html = CASE WHEN excluded.body_html IS NOT NULL AND excluded.body_html != '' THEN excluded.body_html ELSE email_messages.body_html END,
+        body_text = CASE WHEN excluded.body_text != '' THEN excluded.body_text ELSE email_messages.body_text END,
         received_at = excluded.received_at,
         attachments = excluded.attachments`,
       [
@@ -215,6 +221,26 @@ export async function getCachedThread(threadId: string) {
   const db = await getDatabase();
   const rows = await db.select<ThreadRow[]>("SELECT * FROM email_threads WHERE id = $1 LIMIT 1", [threadId]);
   return rows[0] ? mapThread(rows[0]) : null;
+}
+
+export async function updateThreadStarred(threadId: string, starred: boolean) {
+  const db = await getDatabase();
+  const thread = await getCachedThread(threadId);
+  if (!thread) return null;
+
+  const labels = starred
+    ? Array.from(new Set([...thread.labels, "STARRED"]))
+    : thread.labels.filter((label) => label.toLowerCase() !== "starred");
+
+  await db.execute(
+    `UPDATE email_threads
+     SET starred = $1, labels = $2, updated_at = CURRENT_TIMESTAMP
+     WHERE id = $3`,
+    [starred ? 1 : 0, JSON.stringify(labels), threadId]
+  );
+  await db.execute("UPDATE email_search SET labels = $1 WHERE thread_id = $2", [labels.join(" "), threadId]);
+
+  return { ...thread, starred, labels };
 }
 
 export async function getCachedMessages(threadId: string) {

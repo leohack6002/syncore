@@ -51,3 +51,5 @@ export type SyncError = {
   accountId?: string;
   message: string;
 };
+
+export type MailFolder = "unified" | "inbox" | "starred" | "sent" | "archive";

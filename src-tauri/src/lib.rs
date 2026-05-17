@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     io::{ErrorKind, Read, Write},
     net::TcpListener,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -21,6 +21,12 @@ const TOKEN_SERVICE: &str = "syncora.gmail.tokens";
 const GOOGLE_AUTH_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 const GMAIL_BASE_URL: &str = "https://gmail.googleapis.com/gmail/v1/users/me";
+const HTTP_TIMEOUT_SECS: u64 = 25;
+const HTTP_CONNECT_TIMEOUT_SECS: u64 = 10;
+const SOCKET_RETRY_DELAY_MS: u64 = 25;
+const OAUTH_READ_TIMEOUT_SECS: u64 = 120;
+
+static HTTP_CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
 
 #[derive(Default)]
 struct OAuthSessions(Arc<Mutex<HashMap<String, OAuthSession>>>);
@@ -80,6 +86,22 @@ struct GmailRequestInput {
     body: Option<Value>,
 }
 
+#[derive(Serialize)]
+struct DesktopTokenExchange<'a> {
+    client_id: &'a str,
+    code: &'a str,
+    code_verifier: &'a str,
+    grant_type: &'static str,
+    redirect_uri: &'a str,
+}
+
+#[derive(Serialize)]
+struct DesktopTokenRefresh<'a> {
+    client_id: &'a str,
+    grant_type: &'static str,
+    refresh_token: &'a str,
+}
+
 #[tauri::command]
 fn app_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
@@ -99,8 +121,11 @@ fn start_google_oauth(
     listener
         .set_nonblocking(false)
         .map_err(|error| error.to_string())?;
-    let port = listener.local_addr().map_err(|error| error.to_string())?.port();
-    let redirect_uri = format!("http://127.0.0.1:{port}/oauth/google/callback");
+    let port = listener
+        .local_addr()
+        .map_err(|error| error.to_string())?
+        .port();
+    let redirect_uri = format!("http://127.0.0.1:{port}");
     let session_id = random_string(24);
     let state = random_string(32);
     let verifier = random_string(96);
@@ -115,13 +140,12 @@ fn start_google_oauth(
         input.scopes
     };
 
-    let auth_url = format!(
-        "{GOOGLE_AUTH_URL}?client_id={}&redirect_uri={}&response_type=code&scope={}&access_type=offline&prompt=consent&state={}&code_challenge={}&code_challenge_method=S256",
-        urlencoding::encode(&input.client_id),
-        urlencoding::encode(&redirect_uri),
-        urlencoding::encode(&scopes.join(" ")),
-        urlencoding::encode(&state),
-        urlencoding::encode(&challenge)
+    let auth_url = desktop_pkce_authorization_url(
+        &input.client_id,
+        &redirect_uri,
+        &scopes,
+        &state,
+        &challenge,
     );
 
     let session = OAuthSession {
@@ -203,7 +227,13 @@ fn oauth_session_status(
 }
 
 #[tauri::command]
-fn gmail_api_request(input: GmailRequestInput) -> Result<Value, String> {
+async fn gmail_api_request(input: GmailRequestInput) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || gmail_api_request_blocking(input))
+        .await
+        .map_err(|error| format!("Gmail worker failed: {error}"))?
+}
+
+fn gmail_api_request_blocking(input: GmailRequestInput) -> Result<Value, String> {
     let tokens = load_tokens(&input.account_id)?;
     let tokens = ensure_fresh_token(&input.account_id, tokens)?;
     let path = if input.path.starts_with('/') {
@@ -212,7 +242,7 @@ fn gmail_api_request(input: GmailRequestInput) -> Result<Value, String> {
         format!("/{}", input.path)
     };
     let url = format!("{GMAIL_BASE_URL}{path}");
-    let client = reqwest::blocking::Client::new();
+    let client = http_client()?;
     let method = input.method.unwrap_or_else(|| "GET".to_string());
     let request = match method.as_str() {
         "POST" => client.post(url),
@@ -228,14 +258,24 @@ fn gmail_api_request(input: GmailRequestInput) -> Result<Value, String> {
         request
     };
 
-    let response = request.send().map_err(|error| error.to_string())?;
+    let response = send_with_retry(request).map_err(|error| {
+        format!(
+            "Gmail API request failed: {}",
+            network_error_message(&error)
+        )
+    })?;
     let status = response.status();
-    let body = response.text().map_err(|error| error.to_string())?;
+    let body = response.text().map_err(|error| {
+        format!(
+            "Could not read Gmail API response: {}",
+            network_error_message(&error)
+        )
+    })?;
     if !status.is_success() {
-        return Err(format!("Gmail API returned {status}: {body}"));
+        return Err(google_api_error_message(status, &body));
     }
 
-    serde_json::from_str(&body).map_err(|error| error.to_string())
+    serde_json::from_str(&body).map_err(|error| format!("Gmail API returned invalid JSON: {error}"))
 }
 
 #[tauri::command]
@@ -261,8 +301,15 @@ fn receive_oauth_code(listener: TcpListener, expected_state: &str) -> Result<Str
             Err(error) => return Err(error.to_string()),
         }
     };
+    stream
+        .set_nonblocking(false)
+        .map_err(|error| format!("Could not configure OAuth callback socket: {error}"))?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(OAUTH_READ_TIMEOUT_SECS)))
+        .map_err(|error| format!("Could not configure OAuth callback timeout: {error}"))?;
+
     let mut buffer = [0; 4096];
-    let bytes_read = stream.read(&mut buffer).map_err(|error| error.to_string())?;
+    let bytes_read = read_oauth_callback(&mut stream, &mut buffer)?;
     let request = String::from_utf8_lossy(&buffer[..bytes_read]);
     let request_line = request
         .lines()
@@ -272,7 +319,8 @@ fn receive_oauth_code(listener: TcpListener, expected_state: &str) -> Result<Str
         .split_whitespace()
         .nth(1)
         .ok_or_else(|| "OAuth callback path was missing.".to_string())?;
-    let callback_url = Url::parse(&format!("http://127.0.0.1{path}")).map_err(|error| error.to_string())?;
+    let callback_url =
+        Url::parse(&format!("http://127.0.0.1{path}")).map_err(|error| error.to_string())?;
     let query: HashMap<String, String> = callback_url.query_pairs().into_owned().collect();
 
     let response_body = "<html><body style=\"background:#07090f;color:#f8fafc;font-family:system-ui;padding:32px\"><h1>Syncora connected</h1><p>You can return to Syncora.</p></body></html>";
@@ -289,10 +337,12 @@ fn receive_oauth_code(listener: TcpListener, expected_state: &str) -> Result<Str
         return Err("OAuth state mismatch.".into());
     }
 
-    query
-        .get("code")
-        .cloned()
-        .ok_or_else(|| query.get("error").cloned().unwrap_or_else(|| "OAuth code was missing.".into()))
+    query.get("code").cloned().ok_or_else(|| {
+        query
+            .get("error")
+            .cloned()
+            .unwrap_or_else(|| "OAuth code was missing.".into())
+    })
 }
 
 fn exchange_code(
@@ -301,45 +351,65 @@ fn exchange_code(
     verifier: &str,
     code: &str,
 ) -> Result<TokenSet, String> {
-    let client = reqwest::blocking::Client::new();
+    let client = http_client()?;
+    let form = DesktopTokenExchange {
+        client_id,
+        code,
+        code_verifier: verifier,
+        grant_type: "authorization_code",
+        redirect_uri,
+    };
+
     let response = client
         .post(GOOGLE_TOKEN_URL)
-        .form(&[
-            ("client_id", client_id),
-            ("redirect_uri", redirect_uri),
-            ("grant_type", "authorization_code"),
-            ("code_verifier", verifier),
-            ("code", code),
-        ])
-        .send()
-        .map_err(|error| error.to_string())?;
+        .form(&form)
+        .send_with_retry()
+        .map_err(|error| {
+            format!(
+                "Google token exchange failed: {}",
+                network_error_message(&error)
+            )
+        })?;
     parse_token_response(response, client_id)
 }
 
 fn refresh_access_token(account_id: &str, refresh_token: &str) -> Result<TokenSet, String> {
     let existing = load_tokens(account_id)?;
     let client_id = existing.client_id;
-    let client = reqwest::blocking::Client::new();
+    let client = http_client()?;
+    let form = DesktopTokenRefresh {
+        client_id: client_id.as_str(),
+        grant_type: "refresh_token",
+        refresh_token,
+    };
+
     let response = client
         .post(GOOGLE_TOKEN_URL)
-        .form(&[
-            ("client_id", client_id.as_str()),
-            ("grant_type", "refresh_token"),
-            ("refresh_token", refresh_token),
-        ])
-        .send()
-        .map_err(|error| error.to_string())?;
+        .form(&form)
+        .send_with_retry()
+        .map_err(|error| {
+            format!(
+                "Google token refresh failed: {}",
+                network_error_message(&error)
+            )
+        })?;
     let mut refreshed = parse_token_response(response, &client_id)?;
     refreshed.refresh_token = Some(refresh_token.to_string());
     store_tokens(account_id, &refreshed)?;
     Ok(refreshed)
 }
 
-fn parse_token_response(response: reqwest::blocking::Response, client_id: &str) -> Result<TokenSet, String> {
+fn parse_token_response(
+    response: reqwest::blocking::Response,
+    client_id: &str,
+) -> Result<TokenSet, String> {
     let status = response.status();
-    let value: Value = response.json().map_err(|error| error.to_string())?;
+    let value: Value = response
+        .json()
+        .map_err(|_| "Google token endpoint returned an unreadable response.".to_string())?;
     if !status.is_success() {
-        return Err(format!("Google token endpoint returned {status}: {value}"));
+        eprintln!("[Syncora OAuth] Token exchange failed: status={status} body={value}");
+        return Err(token_endpoint_error(status, &value));
     }
 
     let access_token = value
@@ -347,9 +417,19 @@ fn parse_token_response(response: reqwest::blocking::Response, client_id: &str) 
         .and_then(Value::as_str)
         .ok_or_else(|| "Token response did not include an access token.".to_string())?
         .to_string();
-    let expires_in = value.get("expires_in").and_then(Value::as_i64).unwrap_or(3600);
-    let refresh_token = value.get("refresh_token").and_then(Value::as_str).map(str::to_string);
-    let scope = value.get("scope").and_then(Value::as_str).unwrap_or("").to_string();
+    let expires_in = value
+        .get("expires_in")
+        .and_then(Value::as_i64)
+        .unwrap_or(3600);
+    let refresh_token = value
+        .get("refresh_token")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let scope = value
+        .get("scope")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
 
     Ok(TokenSet {
         client_id: client_id.to_string(),
@@ -360,18 +440,60 @@ fn parse_token_response(response: reqwest::blocking::Response, client_id: &str) 
     })
 }
 
+fn desktop_pkce_authorization_url(
+    client_id: &str,
+    redirect_uri: &str,
+    scopes: &[String],
+    state: &str,
+    challenge: &str,
+) -> String {
+    let mut params = url::form_urlencoded::Serializer::new(String::new());
+    params.append_pair("client_id", client_id);
+    params.append_pair("redirect_uri", redirect_uri);
+    params.append_pair("response_type", "code");
+    params.append_pair("scope", &scopes.join(" "));
+    params.append_pair("access_type", "offline");
+    params.append_pair("prompt", "consent");
+    params.append_pair("state", state);
+    params.append_pair("code_challenge", challenge);
+    params.append_pair("code_challenge_method", "S256");
+
+    format!("{GOOGLE_AUTH_URL}?{}", params.finish())
+}
+
+fn token_endpoint_error(status: reqwest::StatusCode, value: &Value) -> String {
+    format!(
+        "Token exchange failed: {} - {} (raw: {status})",
+        value
+            .get("error")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown"),
+        value
+            .get("error_description")
+            .and_then(Value::as_str)
+            .unwrap_or("no description")
+    )
+}
+
 fn gmail_profile(access_token: &str) -> Result<Value, String> {
-    let response = reqwest::blocking::Client::new()
+    let response = http_client()?
         .get(format!("{GMAIL_BASE_URL}/profile"))
         .bearer_auth(access_token)
-        .send()
-        .map_err(|error| error.to_string())?;
+        .send_with_retry()
+        .map_err(|error| {
+            format!(
+                "Gmail profile request failed: {}",
+                network_error_message(&error)
+            )
+        })?;
     let status = response.status();
-    let value = response.json::<Value>().map_err(|error| error.to_string())?;
+    let value = response
+        .json::<Value>()
+        .map_err(|error| error.to_string())?;
     if status.is_success() {
         Ok(value)
     } else {
-        Err(format!("Gmail profile request failed: {value}"))
+        Err("Gmail profile request failed. Please reconnect Gmail and try again.".to_string())
     }
 }
 
@@ -385,6 +507,123 @@ fn ensure_fresh_token(account_id: &str, tokens: TokenSet) -> Result<TokenSet, St
         .clone()
         .ok_or_else(|| "Account is missing a refresh token. Please reconnect Gmail.".to_string())?;
     refresh_access_token(account_id, &refresh_token)
+}
+
+fn http_client() -> Result<reqwest::blocking::Client, String> {
+    if let Some(client) = HTTP_CLIENT.get() {
+        return Ok(client.clone());
+    }
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(HTTP_TIMEOUT_SECS))
+        .connect_timeout(Duration::from_secs(HTTP_CONNECT_TIMEOUT_SECS))
+        .build()
+        .map_err(|error| format!("Could not create HTTP client: {error}"))?;
+
+    match HTTP_CLIENT.set(client.clone()) {
+        Ok(()) => Ok(client),
+        Err(_) => Ok(HTTP_CLIENT
+            .get()
+            .expect("HTTP client should be initialized after set failure")
+            .clone()),
+    }
+}
+
+fn read_oauth_callback(
+    stream: &mut std::net::TcpStream,
+    buffer: &mut [u8],
+) -> Result<usize, String> {
+    let deadline = Instant::now() + Duration::from_secs(OAUTH_READ_TIMEOUT_SECS);
+
+    loop {
+        match stream.read(buffer) {
+            Ok(0) => {
+                return Err("OAuth callback connection closed before sending a request.".into())
+            }
+            Ok(bytes_read) => return Ok(bytes_read),
+            Err(error) if error.kind() == ErrorKind::WouldBlock && Instant::now() < deadline => {
+                thread::sleep(Duration::from_millis(SOCKET_RETRY_DELAY_MS));
+            }
+            Err(error) if error.kind() == ErrorKind::WouldBlock => {
+                return Err("OAuth callback socket was not ready before the timeout.".into());
+            }
+            Err(error) => return Err(format!("OAuth callback read failed: {error}")),
+        }
+    }
+}
+
+fn send_with_retry(
+    request: reqwest::blocking::RequestBuilder,
+) -> Result<reqwest::blocking::Response, reqwest::Error> {
+    let mut last_error = None;
+
+    for attempt in 0..3 {
+        let Some(current_request) = request.try_clone() else {
+            return request.send();
+        };
+
+        match current_request.send() {
+            Ok(response) => return Ok(response),
+            Err(error) if is_retryable_network_error(&error) && attempt < 2 => {
+                last_error = Some(error);
+                thread::sleep(Duration::from_millis(150 * (attempt + 1) as u64));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+
+    match last_error {
+        Some(error) => Err(error),
+        None => request.send(),
+    }
+}
+
+trait RequestBuilderRetry {
+    fn send_with_retry(self) -> Result<reqwest::blocking::Response, reqwest::Error>;
+}
+
+impl RequestBuilderRetry for reqwest::blocking::RequestBuilder {
+    fn send_with_retry(self) -> Result<reqwest::blocking::Response, reqwest::Error> {
+        send_with_retry(self)
+    }
+}
+
+fn is_retryable_network_error(error: &reqwest::Error) -> bool {
+    let message = error.to_string().to_lowercase();
+    error.is_timeout()
+        || error.is_connect()
+        || message.contains("would block")
+        || message.contains("10035")
+        || message.contains("temporarily unavailable")
+}
+
+fn network_error_message(error: &reqwest::Error) -> String {
+    if is_retryable_network_error(error) {
+        "Network request was temporarily unavailable. Please retry when the connection is stable."
+            .to_string()
+    } else {
+        error.to_string()
+    }
+}
+
+fn google_api_error_message(status: reqwest::StatusCode, body: &str) -> String {
+    let lower = body.to_lowercase();
+    if status.as_u16() == 401 || status.as_u16() == 403 || lower.contains("invalid_grant") {
+        return "Gmail authorization failed. Please reconnect the account and try again."
+            .to_string();
+    }
+    if status.as_u16() == 429
+        || status.as_u16() == 503
+        || lower.contains("rate")
+        || lower.contains("quota")
+    {
+        return "Gmail is busy right now. Syncora will retry when the service is available."
+            .to_string();
+    }
+    if status.is_server_error() {
+        return "Gmail is temporarily unavailable. Please retry sync in a moment.".to_string();
+    }
+    format!("Gmail request failed with status {status}.")
 }
 
 fn store_tokens(account_id: &str, tokens: &TokenSet) -> Result<(), String> {
@@ -447,5 +686,5 @@ pub fn run() {
             logout_google_account
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Syncora");
+        .unwrap_or_else(|error| eprintln!("Syncora could not start cleanly: {error}"));
 }

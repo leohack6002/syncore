@@ -18,11 +18,20 @@ type OAuthSession = {
   error?: string;
 };
 
+let connectPromise: Promise<EmailAccount> | null = null;
+
 export async function connectGoogleAccount() {
-  const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-  if (!clientId) {
-    throw new Error("Missing VITE_GOOGLE_CLIENT_ID. Add your Google desktop OAuth client id to .env.");
-  }
+  if (connectPromise) return connectPromise;
+
+  connectPromise = startGoogleAccountConnection().finally(() => {
+    connectPromise = null;
+  });
+
+  return connectPromise;
+}
+
+async function startGoogleAccountConnection() {
+  const clientId = getGoogleClientId();
 
   const session = await invokeCommand<OAuthSession>("start_google_oauth", {
     input: {
@@ -32,6 +41,24 @@ export async function connectGoogleAccount() {
   });
 
   return waitForOAuthSession(session.id);
+}
+
+function getGoogleClientId() {
+  const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim();
+
+  if (!clientId) {
+    throw new Error("Google OAuth is not configured. Add VITE_GOOGLE_CLIENT_ID to .env and restart Syncora.");
+  }
+
+  if (clientId.includes(" ") || clientId.includes("\"") || clientId.includes("'")) {
+    throw new Error("Google OAuth client id is malformed. Use the raw desktop client id without quotes or spaces.");
+  }
+
+  if (!clientId.endsWith(".apps.googleusercontent.com")) {
+    throw new Error("Google OAuth client id must be a desktop OAuth client id ending in .apps.googleusercontent.com.");
+  }
+
+  return clientId;
 }
 
 export async function waitForOAuthSession(sessionId: string) {

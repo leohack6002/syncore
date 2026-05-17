@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { Archive, Bell, FileText, MoreHorizontal, Reply, Sparkles, Star, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -11,8 +12,17 @@ export function MailReader() {
   const threads = useMailStore((state) => state.threads);
   const accounts = useMailStore((state) => state.accounts);
   const messages = useMailStore((state) => state.selectedMessages);
-  const thread = threads.find((item) => item.id === selectedThreadId);
-  const account = accounts.find((item) => item.id === thread?.accountId);
+  const toggleThreadStarred = useMailStore((state) => state.toggleThreadStarred);
+  const thread = useMemo(() => threads.find((item) => item.id === selectedThreadId), [selectedThreadId, threads]);
+  const account = useMemo(() => accounts.find((item) => item.id === thread?.accountId), [accounts, thread?.accountId]);
+  const renderedMessages = useMemo(
+    () =>
+      messages.map((message) => ({
+        ...message,
+        sanitizedBodyHtml: message.bodyHtml ? sanitizeEmailHtml(message.bodyHtml) : ""
+      })),
+    [messages]
+  );
 
   if (!thread) {
     return (
@@ -33,11 +43,26 @@ export function MailReader() {
           <h2 className="truncate text-lg font-semibold text-white">{thread.subject}</h2>
         </div>
         <div className="flex items-center gap-2">
-          {[Archive, Star, Bell, Trash2, MoreHorizontal].map((Icon, index) => (
-            <Button key={index} variant="ghost" size="icon" aria-label="Mail action">
-              <Icon className="h-4 w-4" />
-            </Button>
-          ))}
+          <Button variant="ghost" size="icon" aria-label="Archive message">
+            <Archive className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={thread.starred ? "Unstar message" : "Star message"}
+            onClick={() => void toggleThreadStarred(thread.id)}
+          >
+            <Star className={thread.starred ? "h-4 w-4 fill-amber-300 text-amber-300" : "h-4 w-4"} />
+          </Button>
+          <Button variant="ghost" size="icon" aria-label="Notification settings">
+            <Bell className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="icon" aria-label="Delete message">
+            <Trash2 className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="icon" aria-label="More message actions">
+            <MoreHorizontal className="h-4 w-4" />
+          </Button>
         </div>
       </header>
 
@@ -65,7 +90,7 @@ export function MailReader() {
                   <span className="text-sm text-muted-foreground">{formatRelativeTime(thread.receivedAt)}</span>
                 </div>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  To {account?.email} via Gmail · {thread.messageCount} message thread
+                  To {account?.email} via Gmail - {thread.messageCount} message thread
                 </p>
               </div>
               <Button variant="secondary" size="sm">
@@ -78,16 +103,13 @@ export function MailReader() {
               <p className="mt-8 text-sm text-muted-foreground">This thread is cached without message bodies yet. Refresh sync to fetch full content.</p>
             ) : null}
 
-            {messages.map((message) => (
+            {renderedMessages.map((message) => (
               <div key={message.id} className="mt-8 border-t border-white/10 pt-6 first:border-t-0 first:pt-0">
                 <div className="mb-4 text-xs text-muted-foreground">
-                  {message.from} · {formatRelativeTime(message.receivedAt)}
+                  {message.from} - {formatRelativeTime(message.receivedAt)}
                 </div>
-                {message.bodyHtml ? (
-                  <div
-                    className="prose prose-invert max-w-none prose-a:text-primary prose-img:rounded-lg"
-                    dangerouslySetInnerHTML={{ __html: sanitizeEmailHtml(message.bodyHtml) }}
-                  />
+                {message.sanitizedBodyHtml ? (
+                  <EmailBodyFrame html={message.sanitizedBodyHtml} />
                 ) : (
                   <div className="whitespace-pre-wrap text-[15px] leading-7 text-slate-200">{message.bodyText}</div>
                 )}
@@ -108,11 +130,53 @@ export function MailReader() {
       </div>
 
       <footer className="border-t border-white/10 p-4">
-        <button className="flex h-12 w-full items-center gap-3 rounded-xl border border-white/10 bg-white/[0.04] px-4 text-left text-sm text-muted-foreground transition hover:bg-white/[0.07]">
+        <button
+          type="button"
+          className="flex h-12 w-full items-center gap-3 rounded-xl border border-white/10 bg-white/[0.04] px-4 text-left text-sm text-muted-foreground transition hover:bg-white/[0.07]"
+        >
           <Sparkles className="h-4 w-4 text-primary" />
           Ask Syncora to summarize, find action items, or draft a reply
         </button>
       </footer>
     </section>
+  );
+}
+
+function EmailBodyFrame({ html }: { html: string }) {
+  const [height, setHeight] = useState(360);
+  const srcDoc = useMemo(
+    () => `<!doctype html>
+<html>
+  <head>
+    <base target="_blank" />
+    <style>
+      :root { color-scheme: light; }
+      html, body { margin: 0; padding: 0; background: #ffffff; color: #111827; font: 14px/1.55 Arial, Helvetica, sans-serif; }
+      body { padding: 18px; overflow-wrap: anywhere; }
+      img { max-width: 100%; height: auto; }
+      table { max-width: 100%; }
+      a { color: #0369a1; }
+      pre { white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>${html}</body>
+</html>`,
+    [html]
+  );
+
+  return (
+    <iframe
+      title="Email body"
+      className="w-full rounded-lg border border-white/10 bg-white"
+      sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin"
+      srcDoc={srcDoc}
+      style={{ height }}
+      onLoad={(event) => {
+        const body = event.currentTarget.contentDocument?.body;
+        const documentElement = event.currentTarget.contentDocument?.documentElement;
+        const nextHeight = Math.max(body?.scrollHeight ?? 0, documentElement?.scrollHeight ?? 0, 220);
+        setHeight(Math.min(nextHeight + 2, 1600));
+      }}
+    />
   );
 }

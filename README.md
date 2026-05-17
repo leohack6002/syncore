@@ -15,7 +15,9 @@ Syncora is an early preview foundation. The core desktop shell, Gmail OAuth boun
 - Gmail OAuth with PKCE, loopback callback, and OS keyring token storage
 - Gmail API bridge through native Tauri commands
 - Local SQLite cache for accounts, threads, messages, settings, and FTS5 search
-- Virtualized inbox rendering with TanStack Virtual
+- Scrollable virtualized inbox rendering with TanStack Virtual
+- Sandboxed message-body rendering for Gmail HTML
+- Local star toggles persisted to SQLite
 - Command palette with `Ctrl+K` / `Cmd+K`
 - Native desktop notifications for new unread threads
 - Professional Syncora brand assets and generated app icons for desktop bundles
@@ -70,11 +72,10 @@ Copy-Item .env.example .env
 Then add your Google OAuth client id:
 
 ```bash
-VITE_GOOGLE_CLIENT_ID=
-VITE_GOOGLE_REDIRECT_URI=http://localhost:1420/oauth/google/callback
+VITE_GOOGLE_CLIENT_ID=your-desktop-client-id.apps.googleusercontent.com
 ```
 
-Never commit `.env`, OAuth secrets, tokens, local database files, or generated build output.
+Use a Google OAuth client with application type `Desktop app`. Do not add a client secret or redirect URI; Syncora creates a temporary loopback redirect URI during sign-in. Never commit `.env`, OAuth tokens, local database files, or generated build output.
 
 ## Development
 
@@ -125,12 +126,19 @@ Syncora keeps Gmail tokens outside the frontend. The React app starts account co
 
 Email data is normalized before being written into SQLite. The frontend reads from the local cache first, then syncs accounts in the background. This keeps the app responsive and prepares the product for fast search, offline reads, and multi-account workflows.
 
+## Current Polish
+
+- Dark startup fallback prevents a white flash before React mounts.
+- Archive, inbox, sent, starred, and unified folders share one folder-rule helper.
+- Starred state updates optimistically in Zustand and persists into the local cache.
+- Metadata sync keeps startup lightweight; full bodies hydrate only when a thread is opened.
+- Gmail request pacing and native retry handling reduce transient Windows socket issues.
+
 ## Roadmap
 
 - Account management screens and reconnect states
 - More complete Gmail pagination and background refresh
 - Keyboard shortcuts for archive, star, search, and navigation
-- Message rendering hardening for complex email HTML
 - Tests for normalization, repositories, and sync behavior
 - Screenshots and packaged preview release notes
 

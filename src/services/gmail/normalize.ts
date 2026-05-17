@@ -100,7 +100,7 @@ export function normalizeGmailThread(account: EmailAccount, gmailThread: GmailTh
         .filter(Boolean),
       subject: messageSubject,
       bodyHtml: collectBody(message.payload, "text/html"),
-      bodyText: collectBody(message.payload, "text/plain") || message.snippet || "",
+      bodyText: collectBody(message.payload, "text/plain"),
       receivedAt: message.internalDate ? new Date(Number(message.internalDate)).toISOString() : receivedAt,
       attachments: collectAttachments(message.payload)
     };
