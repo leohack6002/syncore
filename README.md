@@ -1,100 +1,155 @@
 # Syncora
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+<p align="center">
+  <img src="public/brand/app-banner.png" alt="Syncora application banner" width="100%" />
+</p>
 
-![Syncora banner](public/brand/app-banner.png)
+<p align="center">
+  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
+  <img alt="Built with Tauri" src="https://img.shields.io/badge/built%20with-Tauri-24C8DB.svg" />
+  <img alt="Built with Rust" src="https://img.shields.io/badge/built%20with-Rust-f74c00.svg" />
+  <img alt="Version" src="https://img.shields.io/badge/version-v0.1.0-7c3aed.svg" />
+</p>
 
-> Screenshot placeholder: add a current desktop screenshot here before the first tagged release.
+**A local-first, privacy-focused desktop Gmail workspace built with Tauri, React, Rust, SQLite, and Tailwind CSS.**
 
-Syncora is a local-first, privacy-focused desktop Gmail workspace built with Tauri 2. It brings Gmail accounts into a fast native shell with SQLite caching, keyboard-driven navigation, a focused reader, local folder actions, and optional Claude-powered email assistance while keeping OAuth tokens outside the frontend.
+Syncora is a personal open source desktop email client for people who want a calm, fast Gmail workspace outside the browser. It connects to Gmail through a native OAuth flow, keeps a local SQLite cache for speed and search, stores tokens in the OS keyring, and uses a Rust backend for Gmail API access and optional AI assistance.
+
+## Preview
+
+> Screenshot/demo placeholder: add a current app screenshot or short demo GIF here before the first tagged public release.
+
+Suggested file path:
+
+```text
+public/brand/syncora-preview.png
+```
 
 ## Features
 
-- Tauri 2 desktop app with a React, TypeScript, and Vite frontend
-- Gmail OAuth desktop flow with PKCE and loopback callback handling
-- OS keyring token storage and Rust-side Gmail API proxying
-- Local SQLite cache for accounts, threads, messages, labels, settings, and FTS5 search
-- Three-pane workspace with sidebar, virtualized inbox, and sandboxed message reader
-- Unified, Inbox, Starred, Sent, Trash, and Archive folder views
-- Per-account filtering, quick filters, debounced search, and load-more pagination
-- Local message actions for star, archive, move to inbox, move to trash, mark read/unread, empty trash, and permanent delete
-- Settings page for accounts, appearance toggles, notification status, and sync controls
-- Optional Anthropic/Claude email assistant for summaries, action items, draft replies, and custom prompts
-- Professional Syncora brand assets and generated app icons
+- 🔐 **Native Gmail OAuth** with desktop PKCE, loopback callback handling, and OS keyring token storage
+- ⚡ **Local-first cache** using SQLite for accounts, threads, messages, labels, settings, and FTS5 search
+- 🧭 **Three-pane desktop workspace** with sidebar, virtualized inbox, and focused message reader
+- 🗂️ **Built-in folders** for Unified, Inbox, Starred, Sent, Trash, and Archive
+- 🔎 **Fast local search** with debounced queries and cached thread/message indexing
+- 👥 **Multi-account-ready UI** with account filtering and per-account color identity
+- ⭐ **Local message actions** for star, archive, move to inbox, move to trash, mark read/unread, empty trash, and permanent delete
+- 🧱 **Sandboxed email rendering** for Gmail HTML bodies
+- ⌨️ **Keyboard-first navigation** with command palette and reader shortcuts
+- 🤖 **Optional AI assistant** through Anthropic/Claude for summaries, action items, draft replies, and custom prompts
+- 🎨 **Polished brand system** with banner, favicon, palette, logo assets, and generated Tauri icons
 
 ## Tech Stack
 
-| Layer | Tools |
+| Area | Technology |
 | --- | --- |
-| Desktop | Tauri 2, Rust |
-| Frontend | React 18, TypeScript, Vite |
+| Desktop shell | Tauri 2 |
+| Native backend | Rust |
+| Frontend | React, TypeScript, Vite |
 | Styling | Tailwind CSS, lucide-react, framer-motion |
-| State | Zustand, TanStack Query |
-| Data | SQLite through `@tauri-apps/plugin-sql` |
+| State and data flow | Zustand, TanStack Query |
+| Local storage | SQLite via `@tauri-apps/plugin-sql` |
 | Native services | Google OAuth, Gmail API proxy, OS keyring, optional Anthropic API |
 
 ## Prerequisites
 
-- Node.js 20+
+- Node.js 18+
 - npm
 - Rust stable
 - Tauri desktop prerequisites for your operating system
-- Google Cloud project with Gmail API enabled
-- Google OAuth desktop client id and client secret
-- Optional Anthropic API key for the reader AI prompt bar
+- Google Cloud account
+- Gmail API enabled in Google Cloud
+- Google OAuth Desktop app credentials
+- Optional Anthropic API key for AI features
 
-## Google Cloud Setup
+## Setup
 
-1. Create or open a Google Cloud project.
-2. Enable the Gmail API.
-3. Configure the OAuth consent screen.
-4. Create an OAuth Client ID with application type `Desktop app`.
-5. Copy the generated client id and client secret into the environment files below.
-
-## Install And Run
+### 1. Clone the repository
 
 ```bash
-npm install
+git clone https://github.com/leohack6002/syncora.git
+cd syncora
+```
+
+### 2. Create the frontend environment file
+
+```bash
 cp .env.example .env
-cp src-tauri/.env.example src-tauri/.env
 ```
 
 On Windows PowerShell:
 
 ```powershell
 Copy-Item .env.example .env
+```
+
+### 3. Create the native environment file
+
+```bash
+cp src-tauri/.env.example src-tauri/.env
+```
+
+On Windows PowerShell:
+
+```powershell
 Copy-Item src-tauri/.env.example src-tauri/.env
 ```
 
-Configure `.env`:
+### 4. Create Google Cloud OAuth credentials
+
+1. Open [Google Cloud Console](https://console.cloud.google.com/).
+2. Create or select a project.
+3. Enable the Gmail API.
+4. Configure the OAuth consent screen.
+5. Create an OAuth Client ID.
+6. Choose **Desktop app** as the application type.
+7. Copy the generated client ID into `.env`.
+8. Copy the generated client secret into `src-tauri/.env`.
+
+### 5. Install dependencies
+
+```bash
+npm install
+```
+
+### 6. Run the desktop app
+
+```bash
+npm run tauri:dev
+```
+
+## Environment Variables
+
+| Variable | File | Required | Purpose |
+| --- | --- | --- | --- |
+| `VITE_GOOGLE_CLIENT_ID` | `.env` | Yes | Google OAuth Desktop app client ID. This is the only frontend-exposed environment variable. |
+| `GOOGLE_CLIENT_SECRET` | `src-tauri/.env` | Yes | Google OAuth Desktop app client secret used by the Rust backend during token exchange. |
+| `ANTHROPIC_API_KEY` | `src-tauri/.env` | Optional | Enables the reader AI assistant for summaries, action items, draft replies, and custom prompts. |
+
+Example `.env`:
 
 ```env
 VITE_GOOGLE_CLIENT_ID=your-desktop-client-id.apps.googleusercontent.com
 ```
 
-Configure `src-tauri/.env`:
+Example `src-tauri/.env`:
 
 ```env
 GOOGLE_CLIENT_SECRET=your-google-oauth-client-secret
 ANTHROPIC_API_KEY=your-anthropic-api-key
 ```
 
-`ANTHROPIC_API_KEY` is optional. Gmail works without it, but AI actions in the reader will show a configuration message.
+Never commit `.env`, `src-tauri/.env`, OAuth tokens, API keys, or local SQLite database files.
 
-Start the desktop app:
-
-```bash
-npm run tauri:dev
-```
-
-Useful development commands:
+## Development Commands
 
 ```bash
-npm run dev          # Vite frontend only
+npm run dev          # Run Vite frontend only
+npm run tauri:dev    # Run the desktop app in development
 npm run typecheck    # TypeScript validation
 npm run lint         # ESLint
-npm run build        # frontend production build
-npm run tauri:build  # desktop production bundle
+npm run build        # Production frontend build
+npm run tauri:build  # Production desktop bundle
 ```
 
 ## Keyboard Shortcuts
@@ -108,63 +163,23 @@ npm run tauri:build  # desktop production bundle
 | `S` | Star or unstar selected thread |
 | `#` | Move selected thread to trash |
 | `U` | Toggle selected thread read/unread |
-| `Escape` | Clear thread selection |
-
-## Repository Structure
-
-```text
-src/
-  app/          App bootstrap, entry point, error boundary
-  layouts/      Desktop shell layout
-  components/   Brand, navigation, and UI primitives
-  features/     Command palette, inbox, reader, settings
-  hooks/        Shared React hooks
-  services/     AI, auth, Gmail, sync, and Tauri service boundaries
-  database/     SQLite client, schema, repositories
-  store/        Zustand stores
-  types/        Shared TypeScript types
-  lib/          Utilities and helpers
-  styles/       Global Tailwind CSS
-src-tauri/src/  Rust application entry and native command backend
-```
-
-Generated folders such as `dist/`, `node_modules/`, and `src-tauri/target/` are intentionally ignored.
-
-## Security Notes
-
-- Do not commit `.env` or `src-tauri/.env`.
-- Gmail access and refresh tokens are stored through the native OS keyring.
-- The frontend only receives sanitized account and mail data.
-- Gmail HTML is sanitized before rendering inside a sandboxed iframe.
-- Native-only secrets are read from `src-tauri/.env` and are not placed in Vite environment variables.
-
-## Branding And Icons
-
-The canonical icon source is:
-
-```text
-public/brand/syncora-logo.png
-```
-
-Regenerate native Tauri icons after changing it:
-
-```bash
-npm run brand:icons
-```
+| `Escape` | Clear selected thread |
 
 ## Roadmap
 
-- Desktop notifications and notification preferences
-- Compose and reply support
-- Richer account management and reconnect states
-- Mobile packaging exploration
-- Tests for normalization, repositories, sync, and native command boundaries
-- Packaged preview release notes and screenshots
+- 🔔 Desktop notifications and notification preferences
+- ✍️ Compose and reply support
+- 📱 Mobile packaging exploration
+- 🤖 Expanded AI workflows for triage, summaries, and suggested replies
+- 🧪 Tests for Gmail normalization, SQLite repositories, sync behavior, and native commands
+- 📦 Tagged preview releases with screenshots and installers
 
 ## Contributing
 
-Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md), keep pull requests focused, include screenshots for UI changes, and run validation before opening a PR.
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
+
+If you find a bug, use the [bug report template](.github/ISSUE_TEMPLATE/bug_report.md). If you have an idea, use the [feature request template](.github/ISSUE_TEMPLATE/feature_request.md).
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+Syncora is released under the MIT License. See [LICENSE](LICENSE).
