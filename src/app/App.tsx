@@ -6,8 +6,13 @@ import { loadCachedWorkspace, syncAllAccounts } from "@/services/sync/sync-engin
 import { useMailStore } from "@/store/mail-store";
 import { useCommandPalette } from "@/store/ui-store";
 
-let startupPromise: Promise<void> | null = null;
+let startupPromise: Promise<void | (() => void)> | null = null;
+const STARTUP_SYNC_DELAY_MS = 1_200;
+const BACKGROUND_SYNC_INTERVAL_MS = 10 * 60_000;
 
+/**
+ * Bootstraps the local database, cached workspace, background sync, and app shell.
+ */
 export function App() {
   const { toggle } = useCommandPalette();
   const [startupState, setStartupState] = useState<"loading" | "ready">("loading");
@@ -19,7 +24,11 @@ export function App() {
         .then(() => {
           window.setTimeout(() => {
             void syncAllAccounts();
-          }, 1_200);
+          }, STARTUP_SYNC_DELAY_MS);
+          const interval = window.setInterval(() => {
+            void syncAllAccounts();
+          }, BACKGROUND_SYNC_INTERVAL_MS);
+          return () => window.clearInterval(interval);
         })
         .catch((error: unknown) => {
           const message = error instanceof Error ? error.message : "Syncora could not initialize the local workspace.";
@@ -29,12 +38,16 @@ export function App() {
     }
 
     let cancelled = false;
-    void startupPromise.finally(() => {
+    let stopAutoSync: (() => void) | undefined;
+    void startupPromise.then((cleanup) => {
+      if (typeof cleanup === "function") stopAutoSync = cleanup;
+    }).finally(() => {
       if (!cancelled) setStartupState("ready");
     });
 
     return () => {
       cancelled = true;
+      stopAutoSync?.();
     };
   }, []);
 

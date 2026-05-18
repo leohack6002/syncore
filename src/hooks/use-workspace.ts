@@ -1,8 +1,12 @@
 import { useMutation } from "@tanstack/react-query";
-import { connectGoogleAccount } from "@/services/auth/native-auth";
-import { connectAndPersistAccount, syncAllAccounts } from "@/services/sync/sync-engine";
+import { deleteAccount } from "@/database/repositories";
+import { connectGoogleAccount, logoutGoogleAccount } from "@/services/auth/native-auth";
+import { connectAndPersistAccount, loadCachedWorkspace, loadMoreThreads, syncAllAccounts } from "@/services/sync/sync-engine";
 import { useMailStore } from "@/store/mail-store";
 
+/**
+ * Exposes workspace mutations for connecting, disconnecting, syncing, and loading mail.
+ */
 export function useWorkspace() {
   const setError = useMailStore((state) => state.setError);
 
@@ -26,8 +30,28 @@ export function useWorkspace() {
     }
   });
 
+  const loadMore = useMutation({
+    mutationFn: () => loadMoreThreads(),
+    onError: (error) => {
+      setError({ message: cleanWorkspaceError(error, "Could not load more mail.") });
+    }
+  });
+
+  const disconnectAccount = useMutation({
+    mutationFn: async (accountId: string) => {
+      await logoutGoogleAccount(accountId);
+      await deleteAccount(accountId);
+      await loadCachedWorkspace();
+    },
+    onError: (error) => {
+      setError({ message: cleanWorkspaceError(error, "Could not disconnect this account.") });
+    }
+  });
+
   return {
     connectAccount,
+    disconnectAccount,
+    loadMore,
     sync
   };
 }

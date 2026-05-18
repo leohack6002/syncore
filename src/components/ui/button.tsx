@@ -26,6 +26,9 @@ const buttonVariants = cva(
   }
 );
 
+/**
+ * Props accepted by the shared Syncora button primitive.
+ */
 export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonVariants> {

@@ -1,150 +1,169 @@
 # Syncora
 
-Syncora is a Tauri desktop communication workspace for Gmail. It brings multiple inboxes into one fast, local-first interface with keyboard-driven navigation, SQLite search, native notifications, and a restrained premium visual system.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-The product direction is calm and productivity-focused: a desktop client that feels closer to Linear, Raycast, Arc, Superhuman, and Notion than a traditional webmail tab.
+![Syncora banner](public/brand/app-banner.png)
 
-## Status
+> Screenshot placeholder: add a current desktop screenshot here before the first tagged release.
 
-Syncora is an early preview foundation. The core desktop shell, Gmail OAuth boundary, SQLite cache, sync engine, native notification path, and app branding pipeline are in place. The app builds successfully as a Windows desktop bundle.
+Syncora is a local-first, privacy-focused desktop Gmail workspace built with Tauri 2. It brings Gmail accounts into a fast native shell with SQLite caching, keyboard-driven navigation, a focused reader, local folder actions, and optional Claude-powered email assistance while keeping OAuth tokens outside the frontend.
 
-## Highlights
+## Features
 
-- Tauri 2 desktop app with React, TypeScript, Vite, and Rust commands
-- Three-pane workspace with sidebar, unified inbox, and message reader
-- Gmail OAuth with PKCE, loopback callback, and OS keyring token storage
-- Gmail API bridge through native Tauri commands
-- Local SQLite cache for accounts, threads, messages, settings, and FTS5 search
-- Scrollable virtualized inbox rendering with TanStack Virtual
-- Sandboxed message-body rendering for Gmail HTML
-- Local star toggles persisted to SQLite
-- Command palette with `Ctrl+K` / `Cmd+K`
-- Native desktop notifications for new unread threads
-- Professional Syncora brand assets and generated app icons for desktop bundles
+- Tauri 2 desktop app with a React, TypeScript, and Vite frontend
+- Gmail OAuth desktop flow with PKCE and loopback callback handling
+- OS keyring token storage and Rust-side Gmail API proxying
+- Local SQLite cache for accounts, threads, messages, labels, settings, and FTS5 search
+- Three-pane workspace with sidebar, virtualized inbox, and sandboxed message reader
+- Unified, Inbox, Starred, Sent, Trash, and Archive folder views
+- Per-account filtering, quick filters, debounced search, and load-more pagination
+- Local message actions for star, archive, move to inbox, move to trash, mark read/unread, empty trash, and permanent delete
+- Settings page for accounts, appearance toggles, notification status, and sync controls
+- Optional Anthropic/Claude email assistant for summaries, action items, draft replies, and custom prompts
+- Professional Syncora brand assets and generated app icons
 
-## Repository Structure
+## Tech Stack
 
-```text
-.
-|-- .github/              # issue and pull request templates
-|-- public/brand/         # source brand assets, favicon, banner, palette
-|-- src/                  # React application source
-|   |-- app/              # application bootstrap
-|   |-- components/       # shared UI, navigation, and brand components
-|   |-- database/         # SQLite client, schema, and repositories
-|   |-- features/         # inbox, reader, command palette
-|   |-- hooks/            # shared React hooks
-|   |-- layouts/          # desktop shell layouts
-|   |-- lib/              # shared utilities and query client
-|   |-- services/         # Gmail, auth, sync, notification, and Tauri services
-|   |-- store/            # Zustand state stores
-|   |-- styles/           # global styles
-|   `-- types/            # shared TypeScript types
-|-- src-tauri/            # Tauri app, Rust commands, capabilities, icons
-|-- CHANGELOG.md          # release history
-|-- demo.md               # product walkthrough and current capabilities
-`-- package.json          # development, build, and branding scripts
-```
+| Layer | Tools |
+| --- | --- |
+| Desktop | Tauri 2, Rust |
+| Frontend | React 18, TypeScript, Vite |
+| Styling | Tailwind CSS, lucide-react, framer-motion |
+| State | Zustand, TanStack Query |
+| Data | SQLite through `@tauri-apps/plugin-sql` |
+| Native services | Google OAuth, Gmail API proxy, OS keyring, optional Anthropic API |
 
-Generated folders such as `dist/`, `node_modules/`, and `src-tauri/target/` are intentionally ignored.
-
-## Requirements
+## Prerequisites
 
 - Node.js 20+
 - npm
 - Rust stable
 - Tauri desktop prerequisites for your operating system
-- Google Cloud OAuth client with Gmail API access enabled
+- Google Cloud project with Gmail API enabled
+- Google OAuth desktop client id and client secret
+- Optional Anthropic API key for the reader AI prompt bar
 
-## Setup
+## Google Cloud Setup
+
+1. Create or open a Google Cloud project.
+2. Enable the Gmail API.
+3. Configure the OAuth consent screen.
+4. Create an OAuth Client ID with application type `Desktop app`.
+5. Copy the generated client id and client secret into the environment files below.
+
+## Install And Run
 
 ```bash
 npm install
 cp .env.example .env
+cp src-tauri/.env.example src-tauri/.env
 ```
 
 On Windows PowerShell:
 
 ```powershell
 Copy-Item .env.example .env
+Copy-Item src-tauri/.env.example src-tauri/.env
 ```
 
-Then add your Google OAuth client id:
+Configure `.env`:
 
-```bash
+```env
 VITE_GOOGLE_CLIENT_ID=your-desktop-client-id.apps.googleusercontent.com
 ```
 
-Use a Google OAuth client with application type `Desktop app`. Do not add a client secret or redirect URI; Syncora creates a temporary loopback redirect URI during sign-in. Never commit `.env`, OAuth tokens, local database files, or generated build output.
+Configure `src-tauri/.env`:
 
-## Development
+```env
+GOOGLE_CLIENT_SECRET=your-google-oauth-client-secret
+ANTHROPIC_API_KEY=your-anthropic-api-key
+```
+
+`ANTHROPIC_API_KEY` is optional. Gmail works without it, but AI actions in the reader will show a configuration message.
+
+Start the desktop app:
+
+```bash
+npm run tauri:dev
+```
+
+Useful development commands:
 
 ```bash
 npm run dev          # Vite frontend only
-npm run tauri:dev    # desktop app in development
 npm run typecheck    # TypeScript validation
 npm run lint         # ESLint
 npm run build        # frontend production build
 npm run tauri:build  # desktop production bundle
 ```
 
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+| --- | --- |
+| `Ctrl+K` / `Cmd+K` | Open command palette |
+| `J` | Select next visible thread and mark it read |
+| `K` | Select previous visible thread and mark it read |
+| `E` | Archive selected thread |
+| `S` | Star or unstar selected thread |
+| `#` | Move selected thread to trash |
+| `U` | Toggle selected thread read/unread |
+| `Escape` | Clear thread selection |
+
+## Repository Structure
+
+```text
+src/
+  app/          App bootstrap, entry point, error boundary
+  layouts/      Desktop shell layout
+  components/   Brand, navigation, and UI primitives
+  features/     Command palette, inbox, reader, settings
+  hooks/        Shared React hooks
+  services/     AI, auth, Gmail, sync, and Tauri service boundaries
+  database/     SQLite client, schema, repositories
+  store/        Zustand stores
+  types/        Shared TypeScript types
+  lib/          Utilities and helpers
+  styles/       Global Tailwind CSS
+src-tauri/src/  Rust application entry and native command backend
+```
+
+Generated folders such as `dist/`, `node_modules/`, and `src-tauri/target/` are intentionally ignored.
+
+## Security Notes
+
+- Do not commit `.env` or `src-tauri/.env`.
+- Gmail access and refresh tokens are stored through the native OS keyring.
+- The frontend only receives sanitized account and mail data.
+- Gmail HTML is sanitized before rendering inside a sandboxed iframe.
+- Native-only secrets are read from `src-tauri/.env` and are not placed in Vite environment variables.
+
 ## Branding And Icons
 
-The canonical app icon source is:
+The canonical icon source is:
 
 ```text
 public/brand/syncora-logo.png
 ```
 
-After changing the logo, regenerate native Tauri icons with:
+Regenerate native Tauri icons after changing it:
 
 ```bash
 npm run brand:icons
 ```
 
-This refreshes `src-tauri/icons`, including Windows `.ico`, macOS `.icns`, Linux PNG sizes, and installer assets. Brand guidance lives in `public/brand/palette.md`.
-
-## Build Verification
-
-The current app has been verified with:
-
-```bash
-npm run build
-npx tauri build --no-bundle --verbose
-npx tauri build
-```
-
-Windows release artifacts are produced under:
-
-```text
-src-tauri/target/release/bundle/
-```
-
-## Architecture Notes
-
-Syncora keeps Gmail tokens outside the frontend. The React app starts account connection, while Rust commands open the browser, receive the OAuth callback, exchange the code, refresh tokens, and store credentials in the OS keyring.
-
-Email data is normalized before being written into SQLite. The frontend reads from the local cache first, then syncs accounts in the background. This keeps the app responsive and prepares the product for fast search, offline reads, and multi-account workflows.
-
-## Current Polish
-
-- Dark startup fallback prevents a white flash before React mounts.
-- Archive, inbox, sent, starred, and unified folders share one folder-rule helper.
-- Starred state updates optimistically in Zustand and persists into the local cache.
-- Metadata sync keeps startup lightweight; full bodies hydrate only when a thread is opened.
-- Gmail request pacing and native retry handling reduce transient Windows socket issues.
-
 ## Roadmap
 
-- Account management screens and reconnect states
-- More complete Gmail pagination and background refresh
-- Keyboard shortcuts for archive, star, search, and navigation
-- Tests for normalization, repositories, and sync behavior
-- Screenshots and packaged preview release notes
+- Desktop notifications and notification preferences
+- Compose and reply support
+- Richer account management and reconnect states
+- Mobile packaging exploration
+- Tests for normalization, repositories, sync, and native command boundaries
+- Packaged preview release notes and screenshots
 
 ## Contributing
 
-Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Keep changes focused, document user-visible behavior, and run validation commands before review.
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md), keep pull requests focused, include screenshots for UI changes, and run validation before opening a PR.
 
 ## License
 

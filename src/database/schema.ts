@@ -1,3 +1,6 @@
+/**
+ * Ordered SQLite migrations for Syncora's local mail cache.
+ */
 export const migrations = [
   {
     version: 1,

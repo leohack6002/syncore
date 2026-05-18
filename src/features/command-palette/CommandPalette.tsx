@@ -15,12 +15,19 @@ type Command = {
   run: () => void;
 };
 
+/**
+ * Renders the keyboard-driven command palette for navigation and workspace actions.
+ */
 export function CommandPalette() {
   const { isOpen, setOpen } = useCommandPalette();
   const searchQuery = useMailStore((state) => state.searchQuery);
   const setSearchQuery = useMailStore((state) => state.setSearchQuery);
+  const accounts = useMailStore((state) => state.accounts);
+  const threads = useMailStore((state) => state.threads);
+  const markThreadUnread = useMailStore((state) => state.markThreadUnread);
   const activeFolder = useUIStore((state) => state.activeFolder);
   const setActiveFolder = useUIStore((state) => state.setActiveFolder);
+  const setActiveAccountFilter = useUIStore((state) => state.setActiveAccountFilter);
   const { connectAccount, sync } = useWorkspace();
   const [commandQuery, setCommandQuery] = useState("");
 
@@ -63,6 +70,26 @@ export function CommandPalette() {
     { id: "starred", label: "Open Starred", icon: Star, hint: activeFolder === "starred" ? "Current" : "View", run: () => openFolder("starred") },
     { id: "sent", label: "Open Sent", icon: Send, hint: activeFolder === "sent" ? "Current" : "View", run: () => openFolder("sent") },
     { id: "archive", label: "Open Archive", icon: Archive, hint: activeFolder === "archive" ? "Current" : "View", run: () => openFolder("archive") },
+    {
+      id: "mark-all-read",
+      label: "Mark all as read",
+      icon: Inbox,
+      hint: "Shift U",
+      run: () => {
+        threads.filter((thread) => thread.unread).forEach((thread) => void markThreadUnread(thread.id, false));
+        close();
+      }
+    },
+    ...accounts.map((account) => ({
+      id: `account-${account.id}`,
+      label: `Go to account: ${account.email}`,
+      icon: Inbox,
+      hint: "Account",
+      run: () => {
+        setActiveAccountFilter(account.id);
+        close();
+      }
+    })),
     {
       id: "search",
       label: commandQuery.trim() ? `Search for "${commandQuery.trim()}"` : "Search local mail",

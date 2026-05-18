@@ -37,12 +37,45 @@
     margin: 0;
     min-width: 320px;
     min-height: 100vh;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  html,
+  #root {
+    height: 100vh;
     overflow: hidden;
   }
 
   button,
   input {
     font: inherit;
+  }
+
+  button:focus-visible,
+  input:focus-visible,
+  [role="button"]:focus-visible {
+    outline: 2px solid #28d7ff;
+    outline-offset: 2px;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(148 163 184 / 0.35) rgb(7 9 15 / 0.2);
+  }
+
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: rgb(7 9 15 / 0.2);
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: rgb(148 163 184 / 0.28);
+    border-radius: 999px;
   }
 
   ::selection {

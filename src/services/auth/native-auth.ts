@@ -20,6 +20,9 @@ type OAuthSession = {
 
 let connectPromise: Promise<EmailAccount> | null = null;
 
+/**
+ * Starts a guarded native Google OAuth connection flow.
+ */
 export async function connectGoogleAccount() {
   if (connectPromise) return connectPromise;
 
@@ -61,6 +64,9 @@ function getGoogleClientId() {
   return clientId;
 }
 
+/**
+ * Polls a native OAuth session until it connects, fails, or times out.
+ */
 export async function waitForOAuthSession(sessionId: string) {
   const startedAt = Date.now();
 
@@ -74,6 +80,9 @@ export async function waitForOAuthSession(sessionId: string) {
   throw new Error("Google OAuth timed out.");
 }
 
+/**
+ * Removes stored Gmail credentials for an account through the native backend.
+ */
 export function logoutGoogleAccount(accountId: string) {
   return invokeCommand<void>("logout_google_account", { accountId });
 }

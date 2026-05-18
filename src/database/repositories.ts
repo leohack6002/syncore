@@ -41,6 +41,9 @@ type MessageRow = {
   attachments: string;
 };
 
+const ACCOUNT_COLOR_PALETTE = ["#28D7FF", "#FF6B6B", "#FFD93D", "#6BCB77", "#9B7CFF", "#FF8C42", "#4ECDC4"];
+const DEFAULT_THREAD_LIMIT = 500;
+
 function mapAccount(row: AccountRow): EmailAccount {
   return {
     id: row.id,
@@ -87,8 +90,13 @@ function mapMessage(row: MessageRow): EmailMessage {
   };
 }
 
+/**
+ * Inserts or updates a Gmail account while preserving its assigned local color.
+ */
 export async function upsertAccount(account: EmailAccount) {
   const db = await getDatabase();
+  const existingRows = await db.select<Array<{ color: string }>>("SELECT color FROM accounts WHERE id = $1 LIMIT 1", [account.id]);
+  const color = existingRows[0]?.color ?? (await nextAccountColor());
   await db.execute(
     `INSERT INTO accounts (id, provider, email, display_name, avatar_url, color, last_synced_at, updated_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
@@ -96,29 +104,48 @@ export async function upsertAccount(account: EmailAccount) {
        email = excluded.email,
        display_name = excluded.display_name,
        avatar_url = excluded.avatar_url,
-       color = excluded.color,
+       color = accounts.color,
        last_synced_at = excluded.last_synced_at,
        updated_at = CURRENT_TIMESTAMP`,
-    [account.id, account.provider, account.email, account.displayName, account.avatarUrl ?? null, account.color, account.lastSyncedAt ?? null]
+    [account.id, account.provider, account.email, account.displayName, account.avatarUrl ?? null, color, account.lastSyncedAt ?? null]
   );
 }
 
+async function nextAccountColor() {
+  const db = await getDatabase();
+  const rows = await db.select<Array<{ color: string }>>("SELECT color FROM accounts ORDER BY created_at ASC");
+  const usedColors = new Set(rows.map((row) => row.color.toUpperCase()));
+  return ACCOUNT_COLOR_PALETTE.find((color) => !usedColors.has(color.toUpperCase())) ?? ACCOUNT_COLOR_PALETTE[rows.length % ACCOUNT_COLOR_PALETTE.length];
+}
+
+/**
+ * Lists connected accounts ordered by email address.
+ */
 export async function listAccounts() {
   const db = await getDatabase();
   const rows = await db.select<AccountRow[]>("SELECT * FROM accounts ORDER BY email ASC");
   return rows.map(mapAccount);
 }
 
+/**
+ * Deletes an account and cascades its locally cached mail.
+ */
 export async function deleteAccount(accountId: string) {
   const db = await getDatabase();
   await db.execute("DELETE FROM accounts WHERE id = $1", [accountId]);
 }
 
+/**
+ * Records the last successful sync timestamp for an account.
+ */
 export async function markAccountSynced(accountId: string, syncedAt = new Date().toISOString()) {
   const db = await getDatabase();
   await db.execute("UPDATE accounts SET last_synced_at = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2", [syncedAt, accountId]);
 }
 
+/**
+ * Inserts or updates a cached thread, search index row, and any hydrated messages.
+ */
 export async function upsertThread(thread: EmailThread, messages: EmailMessage[]) {
   const db = await getDatabase();
   await db.execute(
@@ -208,7 +235,27 @@ export async function upsertThread(thread: EmailThread, messages: EmailMessage[]
   }
 }
 
-export async function listCachedThreads(limit = 100) {
+/**
+ * Writes multiple normalized Gmail threads in a single transaction.
+ */
+export async function upsertThreadsBatch(items: Array<{ thread: EmailThread; messages: EmailMessage[] }>) {
+  const db = await getDatabase();
+  await db.execute("BEGIN IMMEDIATE");
+  try {
+    for (const item of items) {
+      await upsertThread(item.thread, item.messages);
+    }
+    await db.execute("COMMIT");
+  } catch (error) {
+    await db.execute("ROLLBACK");
+    throw error;
+  }
+}
+
+/**
+ * Lists cached threads in newest-first order.
+ */
+export async function listCachedThreads(limit = DEFAULT_THREAD_LIMIT) {
   const db = await getDatabase();
   const rows = await db.select<ThreadRow[]>(
     "SELECT * FROM email_threads ORDER BY datetime(received_at) DESC LIMIT $1",
@@ -217,12 +264,18 @@ export async function listCachedThreads(limit = 100) {
   return rows.map(mapThread);
 }
 
+/**
+ * Loads one cached thread by Syncora thread id.
+ */
 export async function getCachedThread(threadId: string) {
   const db = await getDatabase();
   const rows = await db.select<ThreadRow[]>("SELECT * FROM email_threads WHERE id = $1 LIMIT 1", [threadId]);
   return rows[0] ? mapThread(rows[0]) : null;
 }
 
+/**
+ * Persists a local starred state change and updates searchable labels.
+ */
 export async function updateThreadStarred(threadId: string, starred: boolean) {
   const db = await getDatabase();
   const thread = await getCachedThread(threadId);
@@ -243,6 +296,61 @@ export async function updateThreadStarred(threadId: string, starred: boolean) {
   return { ...thread, starred, labels };
 }
 
+/**
+ * Replaces local labels for a thread and keeps derived starred/search state in sync.
+ */
+export async function updateThreadLabels(threadId: string, labels: string[]) {
+  const db = await getDatabase();
+  const thread = await getCachedThread(threadId);
+  if (!thread) return null;
+
+  await db.execute(
+    `UPDATE email_threads
+     SET labels = $1, starred = $2, updated_at = CURRENT_TIMESTAMP
+     WHERE id = $3`,
+    [JSON.stringify(labels), labels.some((label) => label.toLowerCase() === "starred") ? 1 : 0, threadId]
+  );
+  await db.execute("UPDATE email_search SET labels = $1 WHERE thread_id = $2", [labels.join(" "), threadId]);
+
+  return {
+    ...thread,
+    labels,
+    starred: labels.some((label) => label.toLowerCase() === "starred")
+  };
+}
+
+/**
+ * Persists a local read/unread state change.
+ */
+export async function updateThreadUnread(threadId: string, unread: boolean) {
+  const db = await getDatabase();
+  await db.execute("UPDATE email_threads SET unread = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2", [unread ? 1 : 0, threadId]);
+}
+
+/**
+ * Removes a thread and its messages from the local cache.
+ */
+export async function deleteThreadPermanently(threadId: string) {
+  const db = await getDatabase();
+  await db.execute("DELETE FROM email_search WHERE thread_id = $1", [threadId]);
+  await db.execute("DELETE FROM email_messages WHERE thread_id = $1", [threadId]);
+  await db.execute("DELETE FROM email_threads WHERE id = $1", [threadId]);
+}
+
+/**
+ * Permanently removes all locally cached threads currently labeled as trash.
+ */
+export async function emptyTrashThreads() {
+  const db = await getDatabase();
+  const trashedRows = await db.select<Array<{ id: string }>>("SELECT id FROM email_threads WHERE lower(labels) LIKE '%trash%'");
+  for (const row of trashedRows) {
+    await deleteThreadPermanently(row.id);
+  }
+}
+
+/**
+ * Returns cached messages for a thread in chronological order.
+ */
 export async function getCachedMessages(threadId: string) {
   const db = await getDatabase();
   const rows = await db.select<MessageRow[]>(
@@ -252,7 +360,10 @@ export async function getCachedMessages(threadId: string) {
   return rows.map(mapMessage);
 }
 
-export async function searchCachedThreads(query: string, limit = 100) {
+/**
+ * Searches cached thread metadata and message bodies using SQLite FTS.
+ */
+export async function searchCachedThreads(query: string, limit = DEFAULT_THREAD_LIMIT) {
   if (!query.trim()) return listCachedThreads(limit);
   const db = await getDatabase();
   const rows = await db.select<ThreadRow[]>(
@@ -267,6 +378,9 @@ export async function searchCachedThreads(query: string, limit = 100) {
   return rows.map(mapThread);
 }
 
+/**
+ * Checks whether a thread is already present in the local cache.
+ */
 export async function hasThread(threadId: string) {
   const db = await getDatabase();
   const rows = await db.select<Array<{ count: number }>>("SELECT COUNT(*) as count FROM email_threads WHERE id = $1", [threadId]);

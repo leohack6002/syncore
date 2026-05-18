@@ -21,10 +21,25 @@ const TOKEN_SERVICE: &str = "syncora.gmail.tokens";
 const GOOGLE_AUTH_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 const GMAIL_BASE_URL: &str = "https://gmail.googleapis.com/gmail/v1/users/me";
+const ANTHROPIC_MESSAGES_URL: &str = "https://api.anthropic.com/v1/messages";
+const ANTHROPIC_MODEL: &str = "claude-sonnet-4-20250514";
 const HTTP_TIMEOUT_SECS: u64 = 25;
 const HTTP_CONNECT_TIMEOUT_SECS: u64 = 10;
 const SOCKET_RETRY_DELAY_MS: u64 = 25;
 const OAUTH_READ_TIMEOUT_SECS: u64 = 120;
+const OAUTH_CALLBACK_WAIT_SECS: u64 = 180;
+const OAUTH_CALLBACK_POLL_MS: u64 = 100;
+const OAUTH_SESSION_ID_LENGTH: usize = 24;
+const OAUTH_STATE_LENGTH: usize = 32;
+const OAUTH_VERIFIER_LENGTH: usize = 96;
+const OAUTH_CALLBACK_BUFFER_BYTES: usize = 4096;
+const ANTHROPIC_MAX_TOKENS: u16 = 900;
+const DEFAULT_TOKEN_EXPIRY_SECS: i64 = 3600;
+const TOKEN_REFRESH_SKEW_SECS: i64 = 90;
+const RETRY_ATTEMPTS: usize = 3;
+const RETRY_BACKOFF_MS: u64 = 150;
+const GOOGLE_CLIENT_SECRET_ERROR: &str =
+    "GOOGLE_CLIENT_SECRET is not configured in src-tauri/.env. Add it and restart Syncora.";
 
 static HTTP_CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
 
@@ -86,9 +101,17 @@ struct GmailRequestInput {
     body: Option<Value>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AnthropicInput {
+    prompt: String,
+    email_body: String,
+}
+
 #[derive(Serialize)]
 struct DesktopTokenExchange<'a> {
     client_id: &'a str,
+    client_secret: &'a str,
     code: &'a str,
     code_verifier: &'a str,
     grant_type: &'static str,
@@ -98,6 +121,7 @@ struct DesktopTokenExchange<'a> {
 #[derive(Serialize)]
 struct DesktopTokenRefresh<'a> {
     client_id: &'a str,
+    client_secret: &'a str,
     grant_type: &'static str,
     refresh_token: &'a str,
 }
@@ -116,6 +140,7 @@ fn start_google_oauth(
     if input.client_id.trim().is_empty() {
         return Err("Missing Google OAuth client id.".into());
     }
+    google_client_secret()?;
 
     let listener = TcpListener::bind("127.0.0.1:0").map_err(|error| error.to_string())?;
     listener
@@ -126,9 +151,9 @@ fn start_google_oauth(
         .map_err(|error| error.to_string())?
         .port();
     let redirect_uri = format!("http://127.0.0.1:{port}");
-    let session_id = random_string(24);
-    let state = random_string(32);
-    let verifier = random_string(96);
+    let session_id = random_string(OAUTH_SESSION_ID_LENGTH);
+    let state = random_string(OAUTH_STATE_LENGTH);
+    let verifier = random_string(OAUTH_VERIFIER_LENGTH);
     let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
     let scopes = if input.scopes.is_empty() {
         vec![
@@ -283,17 +308,73 @@ fn logout_google_account(account_id: String) -> Result<(), String> {
     delete_tokens(&account_id)
 }
 
+#[tauri::command]
+async fn ask_anthropic(input: AnthropicInput) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || ask_anthropic_blocking(input))
+        .await
+        .map_err(|error| format!("Claude worker failed: {error}"))?
+}
+
+fn ask_anthropic_blocking(input: AnthropicInput) -> Result<String, String> {
+    let api_key = option_env!("ANTHROPIC_API_KEY")
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "ANTHROPIC_API_KEY is not configured in src-tauri/.env.".to_string())?;
+    let prompt = input.prompt.trim();
+    if prompt.is_empty() {
+        return Err("Enter a prompt for Syncora AI.".to_string());
+    }
+
+    let body = serde_json::json!({
+        "model": ANTHROPIC_MODEL,
+        "max_tokens": ANTHROPIC_MAX_TOKENS,
+        "system": "You are Syncora's email assistant. Use only the provided email context. Be concise, practical, and avoid inventing facts.",
+        "messages": [{
+            "role": "user",
+            "content": format!("Email context:\n{}\n\nUser request:\n{}", input.email_body, prompt)
+        }]
+    });
+
+    let response = http_client()?
+        .post(ANTHROPIC_MESSAGES_URL)
+        .header("x-api-key", api_key)
+        .header("anthropic-version", "2023-06-01")
+        .json(&body)
+        .send_with_retry()
+        .map_err(|error| format!("Claude request failed: {}", network_error_message(&error)))?;
+    let status = response.status();
+    let value = response
+        .json::<Value>()
+        .map_err(|error| format!("Claude returned an unreadable response: {error}"))?;
+
+    if !status.is_success() {
+        let message = value
+            .pointer("/error/message")
+            .and_then(Value::as_str)
+            .unwrap_or("Claude request failed.");
+        return Err(message.to_string());
+    }
+
+    value
+        .get("content")
+        .and_then(Value::as_array)
+        .and_then(|content| content.first())
+        .and_then(|item| item.get("text"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| "Claude returned an empty response.".to_string())
+}
+
 fn receive_oauth_code(listener: TcpListener, expected_state: &str) -> Result<String, String> {
     listener
         .set_nonblocking(true)
         .map_err(|error| error.to_string())?;
 
-    let deadline = Instant::now() + Duration::from_secs(180);
+    let deadline = Instant::now() + Duration::from_secs(OAUTH_CALLBACK_WAIT_SECS);
     let (mut stream, _) = loop {
         match listener.accept() {
             Ok(connection) => break connection,
             Err(error) if error.kind() == ErrorKind::WouldBlock && Instant::now() < deadline => {
-                thread::sleep(Duration::from_millis(100));
+                thread::sleep(Duration::from_millis(OAUTH_CALLBACK_POLL_MS));
             }
             Err(error) if error.kind() == ErrorKind::WouldBlock => {
                 return Err("OAuth callback timed out.".into());
@@ -308,7 +389,7 @@ fn receive_oauth_code(listener: TcpListener, expected_state: &str) -> Result<Str
         .set_read_timeout(Some(Duration::from_secs(OAUTH_READ_TIMEOUT_SECS)))
         .map_err(|error| format!("Could not configure OAuth callback timeout: {error}"))?;
 
-    let mut buffer = [0; 4096];
+    let mut buffer = [0; OAUTH_CALLBACK_BUFFER_BYTES];
     let bytes_read = read_oauth_callback(&mut stream, &mut buffer)?;
     let request = String::from_utf8_lossy(&buffer[..bytes_read]);
     let request_line = request
@@ -352,8 +433,10 @@ fn exchange_code(
     code: &str,
 ) -> Result<TokenSet, String> {
     let client = http_client()?;
+    let client_secret = google_client_secret()?;
     let form = DesktopTokenExchange {
         client_id,
+        client_secret,
         code,
         code_verifier: verifier,
         grant_type: "authorization_code",
@@ -377,8 +460,10 @@ fn refresh_access_token(account_id: &str, refresh_token: &str) -> Result<TokenSe
     let existing = load_tokens(account_id)?;
     let client_id = existing.client_id;
     let client = http_client()?;
+    let client_secret = google_client_secret()?;
     let form = DesktopTokenRefresh {
         client_id: client_id.as_str(),
+        client_secret,
         grant_type: "refresh_token",
         refresh_token,
     };
@@ -408,7 +493,6 @@ fn parse_token_response(
         .json()
         .map_err(|_| "Google token endpoint returned an unreadable response.".to_string())?;
     if !status.is_success() {
-        eprintln!("[Syncora OAuth] Token exchange failed: status={status} body={value}");
         return Err(token_endpoint_error(status, &value));
     }
 
@@ -420,7 +504,7 @@ fn parse_token_response(
     let expires_in = value
         .get("expires_in")
         .and_then(Value::as_i64)
-        .unwrap_or(3600);
+        .unwrap_or(DEFAULT_TOKEN_EXPIRY_SECS);
     let refresh_token = value
         .get("refresh_token")
         .and_then(Value::as_str)
@@ -498,7 +582,7 @@ fn gmail_profile(access_token: &str) -> Result<Value, String> {
 }
 
 fn ensure_fresh_token(account_id: &str, tokens: TokenSet) -> Result<TokenSet, String> {
-    if tokens.expires_at > now_timestamp() + 90 {
+    if tokens.expires_at > now_timestamp() + TOKEN_REFRESH_SKEW_SECS {
         return Ok(tokens);
     }
 
@@ -520,13 +604,14 @@ fn http_client() -> Result<reqwest::blocking::Client, String> {
         .build()
         .map_err(|error| format!("Could not create HTTP client: {error}"))?;
 
-    match HTTP_CLIENT.set(client.clone()) {
-        Ok(()) => Ok(client),
-        Err(_) => Ok(HTTP_CLIENT
-            .get()
-            .expect("HTTP client should be initialized after set failure")
-            .clone()),
+    if HTTP_CLIENT.set(client.clone()).is_ok() {
+        return Ok(client);
     }
+
+    HTTP_CLIENT
+        .get()
+        .cloned()
+        .ok_or_else(|| "Could not initialize HTTP client.".to_string())
 }
 
 fn read_oauth_callback(
@@ -557,16 +642,18 @@ fn send_with_retry(
 ) -> Result<reqwest::blocking::Response, reqwest::Error> {
     let mut last_error = None;
 
-    for attempt in 0..3 {
+    for attempt in 0..RETRY_ATTEMPTS {
         let Some(current_request) = request.try_clone() else {
             return request.send();
         };
 
         match current_request.send() {
             Ok(response) => return Ok(response),
-            Err(error) if is_retryable_network_error(&error) && attempt < 2 => {
+            Err(error) if is_retryable_network_error(&error) && attempt + 1 < RETRY_ATTEMPTS => {
                 last_error = Some(error);
-                thread::sleep(Duration::from_millis(150 * (attempt + 1) as u64));
+                thread::sleep(Duration::from_millis(
+                    RETRY_BACKOFF_MS * (attempt + 1) as u64,
+                ));
             }
             Err(error) => return Err(error),
         }
@@ -664,6 +751,12 @@ fn account_color() -> String {
     colors[rand::thread_rng().gen_range(0..colors.len())].to_string()
 }
 
+fn google_client_secret() -> Result<&'static str, String> {
+    option_env!("GOOGLE_CLIENT_SECRET")
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| GOOGLE_CLIENT_SECRET_ERROR.to_string())
+}
+
 fn now_timestamp() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -672,9 +765,8 @@ fn now_timestamp() -> i64 {
 }
 
 pub fn run() {
-    tauri::Builder::default()
+    let result = tauri::Builder::default()
         .manage(OAuthSessions::default())
-        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_sql::Builder::default().build())
@@ -683,8 +775,12 @@ pub fn run() {
             start_google_oauth,
             oauth_session_status,
             gmail_api_request,
+            ask_anthropic,
             logout_google_account
         ])
-        .run(tauri::generate_context!())
-        .unwrap_or_else(|error| eprintln!("Syncora could not start cleanly: {error}"));
+        .run(tauri::generate_context!());
+
+    if let Err(error) = result {
+        eprintln!("Syncora could not start cleanly: {error}");
+    }
 }

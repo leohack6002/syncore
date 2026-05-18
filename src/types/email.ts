@@ -1,3 +1,6 @@
+/**
+ * A locally persisted Gmail account connected to Syncora.
+ */
 export type EmailAccount = {
   id: string;
   provider: "gmail";
@@ -8,6 +11,9 @@ export type EmailAccount = {
   lastSyncedAt?: string;
 };
 
+/**
+ * A normalized Gmail thread summary used by folder lists and search.
+ */
 export type EmailThread = {
   id: string;
   accountId: string;
@@ -23,6 +29,9 @@ export type EmailThread = {
   messageCount: number;
 };
 
+/**
+ * A normalized Gmail message body and metadata record.
+ */
 export type EmailMessage = {
   id: string;
   threadId: string;
@@ -38,6 +47,9 @@ export type EmailMessage = {
   attachments: EmailAttachment[];
 };
 
+/**
+ * Attachment metadata extracted from Gmail message parts.
+ */
 export type EmailAttachment = {
   id: string;
   filename: string;
@@ -45,11 +57,20 @@ export type EmailAttachment = {
   size: number;
 };
 
+/**
+ * Workspace-level synchronization status.
+ */
 export type SyncStatus = "idle" | "syncing" | "error";
 
+/**
+ * User-facing sync or workspace error.
+ */
 export type SyncError = {
   accountId?: string;
   message: string;
 };
 
-export type MailFolder = "unified" | "inbox" | "starred" | "sent" | "archive";
+/**
+ * Built-in Syncora mail folders.
+ */
+export type MailFolder = "unified" | "inbox" | "starred" | "sent" | "trash" | "archive";

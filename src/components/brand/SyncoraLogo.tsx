@@ -5,6 +5,9 @@ type SyncoraLogoProps = {
   showWordmark?: boolean;
 };
 
+/**
+ * Displays the Syncora brand mark and optional wordmark.
+ */
 export function SyncoraLogo({ className, showWordmark = true }: SyncoraLogoProps) {
   return (
     <div className={cn("flex items-center gap-3", className)}>

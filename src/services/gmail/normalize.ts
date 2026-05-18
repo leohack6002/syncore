@@ -55,6 +55,9 @@ function parseSender(from: string) {
   };
 }
 
+/**
+ * Converts a Gmail thread response into Syncora's local thread and message models.
+ */
 export function normalizeGmailThread(account: EmailAccount, gmailThread: GmailThread) {
   const messages = gmailThread.messages ?? [];
   const latest = messages[messages.length - 1];

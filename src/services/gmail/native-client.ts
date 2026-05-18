@@ -47,19 +47,30 @@ type GmailListThreadsResponse = {
 
 const GMAIL_REQUEST_DELAY_MS = 150;
 const GMAIL_MAX_RETRIES = 2;
+const DEFAULT_GMAIL_THREAD_LIMIT = 50;
+const DEFAULT_GMAIL_QUERY = "in:anywhere newer_than:30d";
 
 let gmailQueue = Promise.resolve();
 let lastGmailRequestAt = 0;
 
+/**
+ * Runs a typed, queued Gmail GET request through the native Tauri proxy.
+ */
 export async function gmailGet<T>(accountId: string, path: string) {
   return enqueueGmailRequest(() => invokeGmailGet<T>(accountId, path));
 }
 
-export function listGmailThreadIds(accountId: string, maxResults = 20) {
+/**
+ * Lists Gmail thread ids for an account using the provided Gmail search query.
+ */
+export function listGmailThreadIds(accountId: string, maxResults = DEFAULT_GMAIL_THREAD_LIMIT, pageToken?: string, query = DEFAULT_GMAIL_QUERY) {
   const params = new URLSearchParams({
     maxResults: String(maxResults),
-    q: "in:anywhere newer_than:30d"
+    q: query
   });
+  if (pageToken) {
+    params.set("pageToken", pageToken);
+  }
 
   return gmailGet<GmailListThreadsResponse>(accountId, `/threads?${params.toString()}`);
 }
@@ -76,14 +87,23 @@ function getGmailThread(accountId: string, threadId: string, format: "metadata" 
   return gmailGet<GmailThread>(accountId, `/threads/${threadId}?${params.toString()}`);
 }
 
+/**
+ * Fetches lightweight Gmail thread metadata for background sync.
+ */
 export function getGmailThreadMetadata(accountId: string, threadId: string) {
   return getGmailThread(accountId, threadId, "metadata");
 }
 
+/**
+ * Fetches a full Gmail thread for reader hydration.
+ */
 export function getGmailThreadFull(accountId: string, threadId: string) {
   return getGmailThread(accountId, threadId, "full");
 }
 
+/**
+ * Lists Gmail labels for an account.
+ */
 export async function listGmailLabels(accountId: string) {
   const response = await gmailGet<{ labels?: GmailLabel[] }>(accountId, "/labels");
   return response.labels ?? [];
